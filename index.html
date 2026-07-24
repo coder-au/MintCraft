@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MintCraft — Coin / Medallion Viewer &amp; Editor</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-icon">◉</span>
+      <h1>MintCraft</h1>
+      <span class="brand-sub">Custom Coin / Medallion Viewer &amp; Editor</span>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- ══════════ Sidebar / Controls ══════════ -->
+    <aside class="sidebar">
+
+      <!-- View controls -->
+      <section class="panel">
+        <h2>View</h2>
+        <div class="view-buttons">
+          <button class="view-btn active" id="viewTopBtn">Top-down</button>
+          <button class="view-btn" id="viewABtn">Side A</button>
+          <button class="view-btn" id="viewBBtn">Side B</button>
+          <button class="view-btn" id="flipBtn">Flip coin</button>
+          <button class="view-btn" id="orbitBtn">Free orbit</button>
+        </div>
+        <div class="check-row">
+          <label><input type="checkbox" id="showDepthCheck" /> Show depth map (2D views)</label>
+        </div>
+      </section>
+
+      <!-- Coin dimensions -->
+      <section class="panel">
+        <h2>Coin Dimensions</h2>
+        <div class="preset-row">
+          <label>Preset</label>
+          <div class="preset-buttons">
+            <button class="preset-btn" data-r="19"  data-d="1.5">US Quarter</button>
+            <button class="preset-btn" data-r="30"  data-d="3.0">Medallion</button>
+            <button class="preset-btn" data-r="15"  data-d="5.0">Token</button>
+            <button class="preset-btn" data-r="25"  data-d="12">Challenge Coin</button>
+          </div>
+        </div>
+        <div class="slider-row">
+          <label for="radiusSlider">Radius <span class="val" id="radiusVal">30 mm</span></label>
+          <input type="range" id="radiusSlider" min="10" max="50" step="0.5" value="30" />
+        </div>
+        <div class="slider-row">
+          <label for="depthSlider">Depth <span class="val" id="depthVal">3 mm</span></label>
+          <input type="range" id="depthSlider" min="1" max="20" step="0.5" value="3" />
+        </div>
+        <div class="slider-row">
+          <label for="reliefSlider">Relief height <span class="val" id="reliefVal">2 mm</span></label>
+          <input type="range" id="reliefSlider" min="0.5" max="5" step="0.1" value="2" />
+        </div>
+        <div class="slider-row">
+          <label for="edgeSlider">Edge thickness <span class="val" id="edgeVal">2 mm</span></label>
+          <input type="range" id="edgeSlider" min="0" max="8" step="0.25" value="2" />
+        </div>
+        <div class="slider-row">
+          <label for="metalSelect">Material</label>
+          <select id="metalSelect" class="sel">
+            <option value="brass" selected>Brass</option>
+            <option value="aluminium">Aluminium</option>
+            <option value="copper">Copper</option>
+            <option value="silver">Silver</option>
+            <option value="stainless">Stainless steel</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- Side A upload -->
+      <section class="panel side-panel" id="panelA">
+        <h2><span class="side-badge badge-a">A</span> Side A — Image</h2>
+        <div class="dropzone" id="dropzoneA" tabindex="0">
+          <p class="dz-title">Drop image here</p>
+          <p class="dz-sub">or click to browse (JPEG, PNG, BMP)</p>
+          <div class="dz-thumb-wrap"><img class="dz-thumb" id="thumbA" alt="" hidden /></div>
+        </div>
+        <input type="file" id="fileA" accept=".jpg,.jpeg,.png,.bmp,image/jpeg,image/png,image/bmp" hidden />
+        <button class="mini-btn" id="clearA" disabled>Clear side A</button>
+
+        <div class="transform-controls" id="transformA">
+          <h3>Position &amp; Scale</h3>
+          <div class="slider-row">
+            <label for="scaleA">Scale <span class="val" id="scaleAVal">100%</span></label>
+            <input type="range" id="scaleA" min="25" max="300" step="1" value="100" />
+          </div>
+          <div class="slider-row">
+            <label for="offsetXA">Offset X <span class="val" id="offsetXAVal">0 px</span></label>
+            <input type="range" id="offsetXA" min="-512" max="512" step="1" value="0" />
+          </div>
+          <div class="slider-row">
+            <label for="offsetYA">Offset Y <span class="val" id="offsetYAVal">0 px</span></label>
+            <input type="range" id="offsetYA" min="-512" max="512" step="1" value="0" />
+          </div>
+          <div class="slider-row">
+            <label for="rotA">Rotation <span class="val" id="rotAVal">0°</span></label>
+            <input type="range" id="rotA" min="-180" max="180" step="1" value="0" />
+          </div>
+          <button class="mini-btn" id="resetA">Reset transform</button>
+        </div>
+
+        <div class="transform-controls">
+          <h3>Depth-Map Conversion</h3>
+          <div class="slider-row">
+            <label for="brightnessA">Brightness <span class="val" id="brightnessAVal">0</span></label>
+            <input type="range" id="brightnessA" min="-100" max="100" step="1" value="0" />
+          </div>
+          <div class="slider-row">
+            <label for="contrastA">Contrast <span class="val" id="contrastAVal">0</span></label>
+            <input type="range" id="contrastA" min="-100" max="100" step="1" value="0" />
+          </div>
+          <div class="check-row">
+            <label><input type="checkbox" id="invertA" /> Invert depth</label>
+          </div>
+          <div class="slider-row">
+            <label for="smoothModeA">Smoothing mode</label>
+            <select id="smoothModeA" class="sel">
+              <option value="bilateral" selected>Bilateral (edge-preserving)</option>
+              <option value="gaussian">Gaussian</option>
+            </select>
+          </div>
+          <div class="slider-row">
+            <label for="blurA">Smoothing strength <span class="val" id="blurAVal">0 px</span></label>
+            <input type="range" id="blurA" min="0" max="20" step="0.5" value="0" />
+          </div>
+          <div class="slider-row" id="edgeRowA">
+            <label for="edgeA">Edge preserve <span class="val" id="edgeAVal">40</span></label>
+            <input type="range" id="edgeA" min="1" max="100" step="1" value="40" />
+          </div>
+          <div class="check-row">
+            <label><input type="checkbox" id="normalizeA" /> Normalize depth range</label>
+          </div>
+          <div class="slider-row">
+            <label for="gammaA">Gamma <span class="val" id="gammaAVal">1.0</span></label>
+            <input type="range" id="gammaA" min="0.3" max="3" step="0.05" value="1" />
+          </div>
+          <div class="slider-row">
+            <label for="finishA">Finish smooth <span class="val" id="finishAVal">0 px</span></label>
+            <input type="range" id="finishA" min="0" max="8" step="0.5" value="0" />
+          </div>
+          <button class="mini-btn" id="resetDepthA">Reset conversion</button>
+        </div>
+      </section>
+
+      <!-- Side B upload -->
+      <section class="panel side-panel" id="panelB">
+        <h2><span class="side-badge badge-b">B</span> Side B — Image</h2>
+        <div class="dropzone" id="dropzoneB" tabindex="0">
+          <p class="dz-title">Drop image here</p>
+          <p class="dz-sub">or click to browse (JPEG, PNG, BMP)</p>
+          <div class="dz-thumb-wrap"><img class="dz-thumb" id="thumbB" alt="" hidden /></div>
+        </div>
+        <input type="file" id="fileB" accept=".jpg,.jpeg,.png,.bmp,image/jpeg,image/png,image/bmp" hidden />
+        <button class="mini-btn" id="clearB" disabled>Clear side B</button>
+
+        <div class="transform-controls" id="transformB">
+          <h3>Position &amp; Scale</h3>
+          <div class="slider-row">
+            <label for="scaleB">Scale <span class="val" id="scaleBVal">100%</span></label>
+            <input type="range" id="scaleB" min="25" max="300" step="1" value="100" />
+          </div>
+          <div class="slider-row">
+            <label for="offsetXB">Offset X <span class="val" id="offsetXBVal">0 px</span></label>
+            <input type="range" id="offsetXB" min="-512" max="512" step="1" value="0" />
+          </div>
+          <div class="slider-row">
+            <label for="offsetYB">Offset Y <span class="val" id="offsetYBVal">0 px</span></label>
+            <input type="range" id="offsetYB" min="-512" max="512" step="1" value="0" />
+          </div>
+          <div class="slider-row">
+            <label for="rotB">Rotation <span class="val" id="rotBVal">0°</span></label>
+            <input type="range" id="rotB" min="-180" max="180" step="1" value="0" />
+          </div>
+          <button class="mini-btn" id="resetB">Reset transform</button>
+        </div>
+
+        <div class="transform-controls">
+          <h3>Depth-Map Conversion</h3>
+          <div class="slider-row">
+            <label for="brightnessB">Brightness <span class="val" id="brightnessBVal">0</span></label>
+            <input type="range" id="brightnessB" min="-100" max="100" step="1" value="0" />
+          </div>
+          <div class="slider-row">
+            <label for="contrastB">Contrast <span class="val" id="contrastBVal">0</span></label>
+            <input type="range" id="contrastB" min="-100" max="100" step="1" value="0" />
+          </div>
+          <div class="check-row">
+            <label><input type="checkbox" id="invertB" /> Invert depth</label>
+          </div>
+          <div class="slider-row">
+            <label for="smoothModeB">Smoothing mode</label>
+            <select id="smoothModeB" class="sel">
+              <option value="bilateral" selected>Bilateral (edge-preserving)</option>
+              <option value="gaussian">Gaussian</option>
+            </select>
+          </div>
+          <div class="slider-row">
+            <label for="blurB">Smoothing strength <span class="val" id="blurBVal">0 px</span></label>
+            <input type="range" id="blurB" min="0" max="20" step="0.5" value="0" />
+          </div>
+          <div class="slider-row" id="edgeRowB">
+            <label for="edgeB">Edge preserve <span class="val" id="edgeBVal">40</span></label>
+            <input type="range" id="edgeB" min="1" max="100" step="1" value="40" />
+          </div>
+          <div class="check-row">
+            <label><input type="checkbox" id="normalizeB" /> Normalize depth range</label>
+          </div>
+          <div class="slider-row">
+            <label for="gammaB">Gamma <span class="val" id="gammaBVal">1.0</span></label>
+            <input type="range" id="gammaB" min="0.3" max="3" step="0.05" value="1" />
+          </div>
+          <div class="slider-row">
+            <label for="finishB">Finish smooth <span class="val" id="finishBVal">0 px</span></label>
+            <input type="range" id="finishB" min="0" max="8" step="0.5" value="0" />
+          </div>
+          <button class="mini-btn" id="resetDepthB">Reset conversion</button>
+        </div>
+      </section>
+
+      <!-- Apply to both sides -->
+      <section class="panel">
+        <h2>Apply Image to Both Sides</h2>
+        <div class="copy-row">
+          <button class="copy-btn" id="copyAtoB" disabled>A&nbsp;→&nbsp;both sides</button>
+          <button class="copy-btn" id="copyBtoA" disabled>B&nbsp;→&nbsp;both sides</button>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ══════════ 3D Preview ══════════ -->
+    <section class="preview3d-area">
+      <div class="preview3d-header">
+        <h2>3D Preview</h2>
+        <span class="hint" id="viewHint">Drag to orbit · scroll to zoom</span>
+      </div>
+      <div class="canvas-wrap" id="canvasWrap"></div>
+    </section>
+
+    <!-- ══════════ 2D Previews ══════════ -->
+    <section class="preview2d-area">
+      <div class="preview2d-card">
+        <h3><span class="side-badge badge-a">A</span> Side A — 2D</h3>
+        <canvas id="canvasA" width="1024" height="1024"></canvas>
+      </div>
+      <div class="preview2d-card">
+        <h3><span class="side-badge badge-b">B</span> Side B — 2D</h3>
+        <canvas id="canvasB" width="1024" height="1024"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span>Upload JPEG / PNG / BMP → converted to a depth map → embossed onto a coin of your chosen radius &amp; depth.</span>
+  </footer>
+
+  <!-- Classic scripts (locally vendored, no CDN): work from file:// and http:// alike -->
+  <script src="lib/three.min.js"></script>
+  <script src="lib/OrbitControls.classic.js"></script>
+  <script src="js/depthmap.js"></script>
+  <script src="js/preview3d.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
