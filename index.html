@@ -19,21 +19,6 @@
     <!-- ══════════ Sidebar / Controls ══════════ -->
     <aside class="sidebar">
 
-      <!-- View controls -->
-      <section class="panel">
-        <h2>View</h2>
-        <div class="view-buttons">
-          <button class="view-btn active" id="viewTopBtn">Top-down</button>
-          <button class="view-btn" id="viewABtn">Side A</button>
-          <button class="view-btn" id="viewBBtn">Side B</button>
-          <button class="view-btn" id="flipBtn">Flip coin</button>
-          <button class="view-btn" id="orbitBtn">Free orbit</button>
-        </div>
-        <div class="check-row">
-          <label><input type="checkbox" id="showDepthCheck" /> Show depth map (2D views)</label>
-        </div>
-      </section>
-
       <!-- Coin dimensions -->
       <section class="panel">
         <h2>Coin Dimensions</h2>
@@ -239,6 +224,17 @@
       <div class="preview3d-header">
         <h2>3D Preview</h2>
         <span class="hint" id="viewHint">Drag to orbit · scroll to zoom</span>
+      </div>
+      <!-- View controls (separated from the properties panels) -->
+      <div class="view-toolbar">
+        <div class="view-buttons">
+          <button class="view-btn active" id="viewTopBtn">Top-down</button>
+          <button class="view-btn" id="viewABtn">Side A</button>
+          <button class="view-btn" id="viewBBtn">Side B</button>
+          <button class="view-btn" id="flipBtn">Flip coin</button>
+          <button class="view-btn" id="orbitBtn">Free orbit</button>
+        </div>
+        <label class="view-depth-toggle"><input type="checkbox" id="showDepthCheck" /> Show depth map</label>
       </div>
       <div class="canvas-wrap" id="canvasWrap"></div>
     </section>
