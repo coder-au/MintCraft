@@ -303,6 +303,26 @@ input[type="range"] {
   background: #0a0d12;
   box-shadow: 0 4px 18px rgba(0,0,0,0.5), inset 0 0 0 1px var(--border);
 }
+.dl-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  justify-content: center;
+}
+.dl-btn {
+  flex: 0 1 auto;
+  padding: 5px 12px;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.dl-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.dl-btn:disabled { opacity: 0.4; cursor: default; }
 
 /* ── Footer ── */
 .app-footer {
@@ -393,6 +413,8 @@ input[type="range"] {
   }
   .preview2d-card canvas { flex: 1 1 auto; min-height: 0; width: 100%; object-fit: contain; }
   .preview2d-card h3 { font-size: 10px; flex-shrink: 0; }
+  .dl-row { gap: 4px; flex-shrink: 0; }
+  .dl-btn { padding: 2px 8px; font-size: 9px; }
 
   /* Properties scroll beneath the pinned block. */
   .sidebar { order: 2; overflow: visible; flex-shrink: 0; }
@@ -441,6 +463,7 @@ input[type="range"] {
   .preview2d-card { flex: 1; padding: 8px; gap: 6px; }
   .preview2d-card canvas { max-width: 84px; height: auto; }
   .preview2d-card h3 { font-size: 10px; }
+  .dl-btn { padding: 2px 8px; font-size: 9px; }
 }
 
 /* Very small phones (portrait): shrink the pinned block a touch. */

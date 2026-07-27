@@ -244,10 +244,18 @@
         <div class="preview2d-card">
           <h3><span class="side-badge badge-a">A</span> Side A — 2D</h3>
           <canvas id="canvasA" width="1024" height="1024"></canvas>
+          <div class="dl-row">
+            <button class="dl-btn" id="dlPngA" disabled title="Download depth map as 16-bit grayscale PNG">⬇ PNG</button>
+            <button class="dl-btn" id="dlTiffA" disabled title="Download depth map as 16-bit grayscale TIFF">⬇ TIFF</button>
+          </div>
         </div>
         <div class="preview2d-card">
           <h3><span class="side-badge badge-b">B</span> Side B — 2D</h3>
           <canvas id="canvasB" width="1024" height="1024"></canvas>
+          <div class="dl-row">
+            <button class="dl-btn" id="dlPngB" disabled title="Download depth map as 16-bit grayscale PNG">⬇ PNG</button>
+            <button class="dl-btn" id="dlTiffB" disabled title="Download depth map as 16-bit grayscale TIFF">⬇ TIFF</button>
+          </div>
         </div>
       </section>
     </div>
@@ -261,6 +269,7 @@
   <script src="lib/three.min.js"></script>
   <script src="lib/OrbitControls.classic.js"></script>
   <script src="js/depthmap.js"></script>
+  <script src="js/export.js"></script>
   <script src="js/preview3d.js"></script>
   <script src="js/app.js"></script>
 </body>

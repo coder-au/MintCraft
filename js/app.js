@@ -81,6 +81,8 @@ const els = {
   normalizeB: $('normalizeB'), gammaB: $('gammaB'), gammaBVal: $('gammaBVal'),
   finishB: $('finishB'), finishBVal: $('finishBVal'),
   canvasA: $('canvasA'), canvasB: $('canvasB'),
+  dlPngA: $('dlPngA'), dlTiffA: $('dlTiffA'),
+  dlPngB: $('dlPngB'), dlTiffB: $('dlTiffB'),
   canvasWrap: $('canvasWrap'),
   viewABtn: $('viewABtn'), viewBBtn: $('viewBBtn'),
   flipBtn: $('flipBtn'), orbitBtn: $('orbitBtn'),
@@ -125,6 +127,8 @@ function refreshAll() {
     edgeFrac,
     tint,
   });
+
+  updateDownloadButtons();
 
   preview3d.rebuild({
     radius: state.radius,
@@ -199,6 +203,27 @@ function updateCopyButtons() {
   els.copyAtoB.disabled = !state.sides.A.image;
   els.copyBtoA.disabled = !state.sides.B.image;
 }
+
+// ── Depth-map download (16-bit grayscale PNG / TIFF) ────────────────────
+function updateDownloadButtons() {
+  els.dlPngA.disabled = els.dlTiffA.disabled = !state.sides.A.depth;
+  els.dlPngB.disabled = els.dlTiffB.disabled = !state.sides.B.depth;
+}
+
+function downloadDepthMap(side, format) {
+  const depth = state.sides[side].depth;
+  if (!depth) return;
+  const { encodePNG16, encodeTIFF16, downloadBlob } = window.DepthMapExport;
+  const blob = format === 'png'
+    ? encodePNG16(depth, DEPTH_GRID_SIZE)
+    : encodeTIFF16(depth, DEPTH_GRID_SIZE);
+  downloadBlob(blob, `depthmap-side-${side}-16bit.${format === 'png' ? 'png' : 'tif'}`);
+}
+
+els.dlPngA.addEventListener('click', () => downloadDepthMap('A', 'png'));
+els.dlTiffA.addEventListener('click', () => downloadDepthMap('A', 'tiff'));
+els.dlPngB.addEventListener('click', () => downloadDepthMap('B', 'png'));
+els.dlTiffB.addEventListener('click', () => downloadDepthMap('B', 'tiff'));
 
 function wireDropzone(zone, fileInput, side) {
   zone.addEventListener('click', () => fileInput.click());
