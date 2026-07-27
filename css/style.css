@@ -95,6 +95,12 @@ body {
 
 /* Sliders */
 .slider-row { margin-bottom: 10px; }
+.ai-status {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--accent-2);
+}
+.ai-status.ai-error { color: #e86a5a; }
 .slider-row label {
   display: flex;
   justify-content: space-between;

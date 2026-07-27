@@ -15,11 +15,13 @@ const DEPTH_GRID_SIZE = 2048; // depth-map resolution per side (offset sliders u
 const MAX_OFFSET = DEPTH_GRID_SIZE / 2;
 
 const defaultTransform = () => ({ scale: 1, ox: 0, oy: 0, rot: 0 });
-const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/bmp', 'image/x-ms-bmp'];
+const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/bmp', 'image/x-ms-bmp', 'image/webp'];
 const defaultConversion = () => ({
   brightness: 0, contrast: 0, invert: false, blurSigma: 0,
   smoothMode: 'bilateral', edgePreserve: 40, normalize: false, gamma: 1,
   finishSmooth: 0,
+  depthSource: 'luminance', // 'luminance' | 'ai' | 'hybrid'
+  aiDetail: 0.25,           // hybrid: luminance detail blend 0..1
 });
 
 // 2D preview tints per metal [r,g,b] (3D uses its own PBR presets).
@@ -40,8 +42,8 @@ const state = {
   metal: 'brass',      // coin material
   showDepthMap: false,
   sides: {
-    A: { image: null, depth: null, transform: defaultTransform(), conv: defaultConversion() },
-    B: { image: null, depth: null, transform: defaultTransform(), conv: defaultConversion() },
+    A: { image: null, depth: null, transform: defaultTransform(), conv: defaultConversion(), ai: null },
+    B: { image: null, depth: null, transform: defaultTransform(), conv: defaultConversion(), ai: null },
   },
 };
 
@@ -74,12 +76,16 @@ const els = {
   smoothModeA: $('smoothModeA'), edgeA: $('edgeA'), edgeAVal: $('edgeAVal'), edgeRowA: $('edgeRowA'),
   normalizeA: $('normalizeA'), gammaA: $('gammaA'), gammaAVal: $('gammaAVal'),
   finishA: $('finishA'), finishAVal: $('finishAVal'),
+  depthSourceA: $('depthSourceA'), aiStatusA: $('aiStatusA'),
+  aiDetailA: $('aiDetailA'), aiDetailAVal: $('aiDetailAVal'), aiDetailRowA: $('aiDetailRowA'),
   brightnessB: $('brightnessB'), brightnessBVal: $('brightnessBVal'),
   contrastB: $('contrastB'), contrastBVal: $('contrastBVal'),
   invertB: $('invertB'), blurB: $('blurB'), blurBVal: $('blurBVal'), resetDepthB: $('resetDepthB'),
   smoothModeB: $('smoothModeB'), edgeB: $('edgeB'), edgeBVal: $('edgeBVal'), edgeRowB: $('edgeRowB'),
   normalizeB: $('normalizeB'), gammaB: $('gammaB'), gammaBVal: $('gammaBVal'),
   finishB: $('finishB'), finishBVal: $('finishBVal'),
+  depthSourceB: $('depthSourceB'), aiStatusB: $('aiStatusB'),
+  aiDetailB: $('aiDetailB'), aiDetailBVal: $('aiDetailBVal'), aiDetailRowB: $('aiDetailRowB'),
   canvasA: $('canvasA'), canvasB: $('canvasB'),
   dlPngA: $('dlPngA'), dlTiffA: $('dlTiffA'),
   dlPngB: $('dlPngB'), dlTiffB: $('dlTiffB'),
@@ -92,10 +98,50 @@ const els = {
 // ── 3D preview ──────────────────────────────────────────────────────────
 const preview3d = new CoinPreview3D(els.canvasWrap);
 
+// ── AI depth (object-aware, local ONNX inference) ───────────────────────
+function setAIStatus(side, text, isError = false) {
+  const el = els['aiStatus' + side];
+  el.textContent = text || '';
+  el.hidden = !text;
+  el.classList.toggle('ai-error', isError);
+}
+
+/**
+ * Ensure an AI depth result exists for a side. Kicks off async inference
+ * (once per image — AIDepth caches internally) and re-renders when ready.
+ * @returns {boolean} true if the AI result is ready now.
+ */
+function ensureAIDepth(side) {
+  const s = state.sides[side];
+  if (!s.image) return false;
+  if (s.ai && s.ai.image === s.image) return true; // ready
+
+  setAIStatus(side, AIDepth.isCached(s.image) ? 'Analyzing…' : 'Loading model & analyzing…');
+  const imageAtRequest = s.image;
+  AIDepth.estimate(imageAtRequest)
+    .then((res) => {
+      if (state.sides[side].image !== imageAtRequest) return; // stale
+      s.ai = { image: imageAtRequest, data: res.data, size: res.size };
+      setAIStatus(side, `Object-aware depth ready (${AIDepth.provider()})`);
+      setTimeout(() => setAIStatus(side, ''), 2500);
+      refreshAll();
+    })
+    .catch((err) => {
+      console.error('AI depth failed:', err);
+      if (state.sides[side].image !== imageAtRequest) return;
+      setAIStatus(side, 'AI depth unavailable — using luminance. (Serve over http://, not file://)', true);
+    });
+  return false;
+}
+
 // ── Rendering ───────────────────────────────────────────────────────────
 function refreshAll() {
   for (const side of ['A', 'B']) {
     const s = state.sides[side];
+    let aiDepth = null;
+    if (s.image && s.conv.depthSource !== 'luminance') {
+      if (ensureAIDepth(side)) aiDepth = s.ai; // else render luminance now, re-render when ready
+    }
     s.depth = s.image
       ? imageToDepthMap(s.image, {
           size: DEPTH_GRID_SIZE,
@@ -109,6 +155,9 @@ function refreshAll() {
           gamma: s.conv.gamma,
           finishSmooth: s.conv.finishSmooth,
           transform: s.transform,
+          depthSource: aiDepth ? s.conv.depthSource : 'luminance',
+          aiDepth,
+          aiDetail: s.conv.aiDetail,
         }).data
       : null;
   }
@@ -153,9 +202,9 @@ async function setImage(side, file) {
   if (!file) return;
   const isAccepted =
     ACCEPTED_TYPES.includes(file.type) ||
-    /\.(jpe?g|png|bmp)$/i.test(file.name);
+    /\.(jpe?g|png|bmp|webp)$/i.test(file.name);
   if (!isAccepted) {
-    alert('Unsupported format. Please use JPEG, PNG or BMP.');
+    alert('Unsupported format. Please use JPEG, PNG, BMP or WebP.');
     return;
   }
   try {
@@ -185,6 +234,8 @@ function applyImage(side, image) {
 function clearSide(side) {
   state.sides[side].image = null;
   state.sides[side].depth = null;
+  state.sides[side].ai = null;
+  setAIStatus(side, '');
 
   const thumb = side === 'A' ? els.thumbA : els.thumbB;
   const panel = side === 'A' ? els.panelA : els.panelB;
@@ -325,11 +376,29 @@ function wireConversion(side) {
     gamma: els['gamma' + side],           gammaVal: els['gamma' + side + 'Val'],
     finish: els['finish' + side],         finishVal: els['finish' + side + 'Val'],
     reset: els['resetDepth' + side],
+    depthSource: els['depthSource' + side],
+    aiDetail: els['aiDetail' + side],     aiDetailVal: els['aiDetail' + side + 'Val'],
+    aiDetailRow: els['aiDetailRow' + side],
   };
 
   const syncEdgeVisibility = () => {
     e.edgeRow.style.display = c().smoothMode === 'bilateral' ? '' : 'none';
   };
+
+  const syncAIDetailVisibility = () => {
+    e.aiDetailRow.style.display = c().depthSource === 'hybrid' ? '' : 'none';
+  };
+
+  e.depthSource.addEventListener('change', () => {
+    c().depthSource = e.depthSource.value;
+    syncAIDetailVisibility();
+    scheduleRefresh(0);
+  });
+  e.aiDetail.addEventListener('input', () => {
+    c().aiDetail = parseInt(e.aiDetail.value, 10) / 100;
+    e.aiDetailVal.textContent = `${e.aiDetail.value}%`;
+    scheduleRefresh();
+  });
 
   e.brightness.addEventListener('input', () => {
     c().brightness = parseInt(e.brightness.value, 10);
@@ -385,11 +454,15 @@ function wireConversion(side) {
     e.normalize.checked = false;
     e.gamma.value = 1;      e.gammaVal.textContent = '1.00';
     e.finish.value = 0;     e.finishVal.textContent = '0 px';
+    e.depthSource.value = 'luminance';
+    e.aiDetail.value = 25;  e.aiDetailVal.textContent = '25%';
     syncEdgeVisibility();
+    syncAIDetailVisibility();
     scheduleRefresh(0);
   });
 
   syncEdgeVisibility();
+  syncAIDetailVisibility();
 }
 
 wireConversion('A');

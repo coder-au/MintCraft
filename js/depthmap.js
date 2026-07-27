@@ -223,6 +223,56 @@ DepthMap.upsample = function (data, srcSize, dstSize) {
 }
 
 /**
+ * Resample an AI depth grid (cover-fit square of the *untransformed* image)
+ * into the coin depth grid, applying the same user transform (scale, offset,
+ * rotation) that `imageToDepthMap` applies when drawing the source image —
+ * so the AI depth aligns 1:1 with the luminance path.
+ *
+ * Mapping: because both grids are cover-fits of the same image, a depth-grid
+ * pixel maps into the AI grid with a plain rotate + uniform scale of
+ * (aiSize / dstSize) / tScale about the grid centres. Samples that fall
+ * outside the AI grid are treated as far (0).
+ *
+ * @param {Float32Array} ai      AI depth values (aiSize × aiSize, 0..1).
+ * @param {number} aiSize        AI grid resolution.
+ * @param {number} dstSize       Destination grid resolution.
+ * @param {object} t             { scale, ox, oy, rot } user transform.
+ * @returns {Float32Array} dstSize × dstSize
+ */
+DepthMap.resampleAIDepth = function (ai, aiSize, dstSize, t) {
+  const tScale = t.scale != null ? t.scale : 1;
+  const tOx = t.ox || 0;
+  const tOy = t.oy || 0;
+  const tRot = ((t.rot || 0) * Math.PI) / 180;
+  const cos = Math.cos(-tRot);
+  const sin = Math.sin(-tRot);
+  const k = (aiSize / dstSize) / Math.max(0.01, tScale);
+  const half = dstSize / 2;
+  const aiHalf = aiSize / 2;
+
+  const out = new Float32Array(dstSize * dstSize);
+  for (let y = 0; y < dstSize; y++) {
+    const dy = y - half - tOy;
+    for (let x = 0; x < dstSize; x++) {
+      const dx = x - half - tOx;
+      // Undo rotation, then scale into the AI grid.
+      const u = aiHalf + (dx * cos - dy * sin) * k;
+      const v = aiHalf + (dx * sin + dy * cos) * k;
+      if (u < 0 || v < 0 || u > aiSize - 1 || v > aiSize - 1) continue; // far
+      // Bilinear sample.
+      const x0 = Math.floor(u), y0 = Math.floor(v);
+      const x1 = Math.min(aiSize - 1, x0 + 1);
+      const y1 = Math.min(aiSize - 1, y0 + 1);
+      const fx = u - x0, fy = v - y0;
+      const a = ai[y0 * aiSize + x0], b = ai[y0 * aiSize + x1];
+      const c = ai[y1 * aiSize + x0], d = ai[y1 * aiSize + x1];
+      out[y * dstSize + x] = (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+    }
+  }
+  return out;
+}
+
+/**
  * Convert an image into a normalized depth map.
  *
  * The image is drawn "cover"-fit (scaled to fill, centered, cropped) into a
@@ -251,6 +301,12 @@ DepthMap.upsample = function (data, srcSize, dstSize) {
  *        pass (px, 0 = off) applied LAST (after invert) to round micro-facets.
  * @param {object} [opts.transform] Image placement against the coin:
  *        { scale (multiplier, 1 = 100%), ox (px), oy (px), rot (degrees) }.
+ * @param {string} [opts.depthSource] 'luminance' (default) | 'ai' | 'hybrid'.
+ * @param {{data: Float32Array, size: number}} [opts.aiDepth] Object-aware
+ *        depth from AIDepth.estimate() (cover-fit of the raw image). Required
+ *        for 'ai' and 'hybrid' sources.
+ * @param {number} [opts.aiDetail] Hybrid only: how much high-frequency
+ *        luminance detail to engrave on top of the AI base shape (0..1).
  * @returns {{ data: Float32Array, size: number }} depth values in [0,1].
  */
 DepthMap.imageToDepthMap = function (image, opts) {
@@ -265,6 +321,9 @@ DepthMap.imageToDepthMap = function (image, opts) {
     normalize = false,
     gamma = 1,
     finishSmooth = 0,
+    depthSource = 'luminance',
+    aiDepth = null,
+    aiDetail = 0.25,
   } = opts;
   const t = opts.transform || {};
   const tScale = t.scale != null ? t.scale : 1;
@@ -293,13 +352,45 @@ DepthMap.imageToDepthMap = function (image, opts) {
 
   const pixels = ctx.getImageData(0, 0, size, size).data;
 
-  // 1) Luminance (Rec. 601) — plain, no contrast yet.
+  // 1) Base depth signal.
+  //    'luminance' — Rec. 601 luminance (bright = raised). Classic.
+  //    'ai'        — object-aware scene depth (near = raised) from the model.
+  //    'hybrid'    — AI base shape + high-pass luminance detail on top.
   let depth = new Float32Array(size * size);
   for (let i = 0; i < size * size; i++) {
     const r = pixels[i * 4];
     const g = pixels[i * 4 + 1];
     const b = pixels[i * 4 + 2];
     depth[i] = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  }
+
+  const useAI = (depthSource === 'ai' || depthSource === 'hybrid') && aiDepth && aiDepth.data;
+  if (useAI) {
+    const aiGrid = DepthMap.resampleAIDepth(aiDepth.data, aiDepth.size, size, {
+      scale: tScale, ox: tOx, oy: tOy, rot: t.rot || 0,
+    });
+    if (depthSource === 'ai') {
+      depth = aiGrid;
+    } else {
+      // Hybrid: AI macro shape + high-frequency luminance detail.
+      // High-pass = luminance − low-pass(luminance), computed on a small
+      // working grid for speed (detail extraction is scale-tolerant).
+      const HP_WORK = 512;
+      const hpSigma = 6; // px at HP_WORK — splits "shape" from "engraving"
+      let lp;
+      if (size > HP_WORK) {
+        const smallLum = DepthMap.downsample(depth, size, HP_WORK);
+        lp = DepthMap.upsample(DepthMap.gaussianBlur(smallLum, HP_WORK, HP_WORK, hpSigma), HP_WORK, size);
+      } else {
+        lp = DepthMap.gaussianBlur(depth, size, size, hpSigma * (size / HP_WORK));
+      }
+      const amt = Math.min(1, Math.max(0, aiDetail));
+      for (let i = 0; i < depth.length; i++) {
+        const hi = depth[i] - lp[i]; // signed detail, roughly -0.5..0.5
+        let v = aiGrid[i] + hi * amt;
+        depth[i] = v < 0 ? 0 : v > 1 ? 1 : v;
+      }
+    }
   }
 
   // 2+3) Denoise + smoothing run on a capped working grid (≤ WORK²) so the
