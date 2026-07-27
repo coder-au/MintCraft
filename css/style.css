@@ -50,6 +50,10 @@ body {
   min-height: 0;
 }
 
+/* Pinned-previews wrapper: transparent to the desktop grid (children are
+   grid items), but becomes a fixed pinned block on mobile. */
+.pinned-previews { display: contents; }
+
 /* ── Sidebar ── */
 .sidebar {
   display: flex;
@@ -334,37 +338,68 @@ input[type="range"] {
     padding: 10px;
     overflow: visible;
   }
-  /* Pin the 3D preview to the top with position:fixed so it stays on screen
-     while scrolling to the tuning panels (sticky is unreliable inside this
-     flex-column scroll setup). Reserve space at the top of .app-main so the
-     fixed preview doesn't overlap the 2D/properties content. */
-  .app-main { padding-top: calc(38vh + 120px); }
-  .preview3d-area {
+  /* Pin BOTH the 3D preview and the Side A/B 2D previews to the top so they
+     are always visible while scrolling to the tuning panels. The pinned
+     block is sized in viewport units (no hardcoded pixels): the 3D preview
+     takes 30% less space than before, and the 2D row sits beneath it inside
+     the same fixed block. */
+  :root { --preview3d-h: 32vh; --preview2d-h: 16vh; --pinned-h: calc(var(--preview3d-h) + var(--preview2d-h)); }
+
+  /* Reserve the combined pinned height so content starts right below it. */
+  .app-main { padding-top: var(--pinned-h); }
+
+  /* The pinned block holds the 3D + 2D previews, fixed to the viewport top. */
+  .pinned-previews {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
+    height: var(--pinned-h);
     z-index: 30;
+    display: flex;
+    flex-direction: column;
     background: var(--bg);
-    overflow: visible;
-    border-radius: 0 0 var(--radius) var(--radius);
     box-shadow: 0 8px 18px rgba(0,0,0,0.45);
-    margin: 0 10px;
+    padding: 0 10px;
   }
-  /* Reorder remaining content: 2D first (right under the fixed preview),
-     then properties. */
-  .preview2d-area { order: 1; flex-direction: row; gap: 10px; flex-shrink: 0; }
-  .sidebar        { order: 2; overflow: visible; flex-shrink: 0; }
-
+  .preview3d-area {
+    height: var(--preview3d-h);
+    flex-shrink: 0;
+    overflow: visible;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+  }
+  .preview3d-header { padding: 6px 4px; }
   .preview3d-header h2 { font-size: 12px; }
-  /* Override the desktop min-height so 38vh can actually shrink the canvas. */
-  .canvas-wrap { flex: none; height: 38vh; min-height: 0; }
+  /* Canvas fills whatever the header + toolbar leave inside the 3D block. */
+  .canvas-wrap { flex: 1 1 auto; min-height: 0; }
 
-  /* 2D previews: small thumbnails in a row. */
-  .preview2d-card { flex: 1; padding: 8px; gap: 6px; }
-  .preview2d-card canvas { max-width: 120px; }
-  .preview2d-card h3 { font-size: 10px; }
+  /* 2D previews: a row of small thumbnails pinned below the 3D preview. */
+  .preview2d-area {
+    height: var(--preview2d-h);
+    flex-direction: row;
+    gap: 10px;
+    flex-shrink: 0;
+    align-items: stretch;
+  }
+  .preview2d-card {
+    flex: 1;
+    padding: 4px;
+    gap: 4px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .preview2d-card canvas { flex: 1 1 auto; min-height: 0; width: 100%; object-fit: contain; }
+  .preview2d-card h3 { font-size: 10px; flex-shrink: 0; }
 
+  /* Properties scroll beneath the pinned block. */
+  .sidebar { order: 2; overflow: visible; flex-shrink: 0; }
+
+  /* Hide the branding header in portrait mobile so the pinned previews and
+     the content below align with no gap (both viewport-anchored). */
+  .app-header { display: none; }
   .app-footer { display: none; }
 }
 
@@ -379,7 +414,9 @@ input[type="range"] {
     padding-top: 10px; /* landscape: preview is in normal flow, no fixed offset */
     overflow: visible;
   }
-  /* Landscape: 3D preview back in normal flow (near-full-height), not fixed. */
+  /* Landscape: pinned wrapper back to transparent (display:contents) so the
+     3D + 2D previews return to normal flow, 3D near-full-height. */
+  .pinned-previews { display: contents; }
   .preview3d-area {
     position: static;
     order: 1;
@@ -387,23 +424,26 @@ input[type="range"] {
     margin: 0;
     box-shadow: none;
     border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    height: auto; /* undo the fixed-block height from the portrait rule */
   }
-  .preview2d-area { order: 2; flex-direction: row; gap: 10px; flex-shrink: 0; }
+  .preview2d-area { order: 2; flex-direction: row; gap: 10px; flex-shrink: 0; height: auto; }
   .sidebar        { order: 3; overflow: visible; flex-shrink: 0; }
 
-  .app-header { padding: 6px 16px; }
+  .app-header { padding: 6px 16px; display: block; }
   .brand h1 { font-size: 16px; }
   .brand-sub { display: none; }
   .app-footer { display: none; }
 
-  .canvas-wrap { flex: none; height: calc(100vh - 130px); min-height: 0; }
+  /* Canvas takes nearly the full viewport height (header + toolbar are small). */
+  .canvas-wrap { flex: none; height: 82vh; min-height: 0; }
   .preview2d-card { flex: 1; padding: 8px; gap: 6px; }
-  .preview2d-card canvas { max-width: 84px; }
+  .preview2d-card canvas { max-width: 84px; height: auto; }
   .preview2d-card h3 { font-size: 10px; }
 }
 
-/* Very small phones. */
-@media (max-width: 380px) {
-  .canvas-wrap { height: 34vh; }
-  .preview2d-card canvas { max-width: 96px; }
+/* Very small phones (portrait): shrink the pinned block a touch. */
+@media (max-width: 380px) and (orientation: portrait) {
+  :root { --preview3d-h: 28vh; --preview2d-h: 14vh; }
 }

@@ -82,7 +82,7 @@ const els = {
   finishB: $('finishB'), finishBVal: $('finishBVal'),
   canvasA: $('canvasA'), canvasB: $('canvasB'),
   canvasWrap: $('canvasWrap'),
-  viewTopBtn: $('viewTopBtn'), viewABtn: $('viewABtn'), viewBBtn: $('viewBBtn'),
+  viewABtn: $('viewABtn'), viewBBtn: $('viewBBtn'),
   flipBtn: $('flipBtn'), orbitBtn: $('orbitBtn'),
   viewHint: $('viewHint'),
 };
@@ -420,43 +420,58 @@ function setActiveViewButton(btn) {
   if (btn) btn.classList.add('active');
 }
 
-/** Show one side's panel, or both when view is null ('A' | 'B' | null). */
-function showSidePanel(view) {
-  els.panelA.classList.toggle('hidden', view === 'B');
-  els.panelB.classList.toggle('hidden', view === 'A');
+/** Switch the 3D preview to show the given side (used when editing params). */
+function focusSide(side) {
+  if (side === 'A') preview3d.viewSideA(state.radius);
+  else preview3d.viewSideB(state.radius);
+  setActiveViewButton(side === 'A' ? els.viewABtn : els.viewBBtn);
+  els.viewHint.textContent = `Viewing side ${side}`;
 }
 
-els.viewTopBtn.addEventListener('click', () => {
-  preview3d.viewTopDown(state.radius);
-  setActiveViewButton(els.viewTopBtn);
-  showSidePanel(null); // both sides visible in top-down
-  els.viewHint.textContent = `Top-down — side ${preview3d.topSide} facing up`;
-});
-els.viewABtn.addEventListener('click', () => {
-  preview3d.viewSideA(state.radius);
-  setActiveViewButton(els.viewABtn);
-  showSidePanel('A');
-  els.viewHint.textContent = 'Viewing side A';
-});
-els.viewBBtn.addEventListener('click', () => {
-  preview3d.viewSideB(state.radius);
-  setActiveViewButton(els.viewBBtn);
-  showSidePanel('B');
-  els.viewHint.textContent = 'Viewing side B';
-});
+/**
+ * When the user interacts with a side's parameter panel, ensure the 3D
+ * preview is mostly facing that side — if not, tween the view to it.
+ */
+function wireSideFocus(side, panelEl) {
+  const maybeFocus = () => {
+    if (!preview3d.isSideMostlyFacing(side)) focusSide(side);
+  };
+  panelEl.addEventListener('pointerdown', maybeFocus, true);
+  panelEl.addEventListener('focusin', maybeFocus);
+}
+
+wireSideFocus('A', els.panelA);
+wireSideFocus('B', els.panelB);
+
+/** Show exactly one side's parameters at a time ('A' | 'B'). Never both. */
+function showSidePanel(view) {
+  els.panelA.classList.toggle('hidden', view !== 'A');
+  els.panelB.classList.toggle('hidden', view !== 'B');
+}
+
+els.viewABtn.addEventListener('click', () => { focusSide('A'); showSidePanel('A'); });
+els.viewBBtn.addEventListener('click', () => { focusSide('B'); showSidePanel('B'); });
 els.flipBtn.addEventListener('click', () => {
   preview3d.flip();
-  setActiveViewButton(null);
+  // After the flip animation completes, show the side now facing up.
+  setTimeout(() => {
+    const top = preview3d.topSide; // 'A' or 'B'
+    showSidePanel(top);
+    setActiveViewButton(top === 'A' ? els.viewABtn : els.viewBBtn);
+    els.viewHint.textContent = `Viewing side ${top}`;
+  }, 720);
   els.viewHint.textContent = 'Flipping…';
 });
 els.orbitBtn.addEventListener('click', () => {
   preview3d.viewOrbit(state.radius);
   setActiveViewButton(els.orbitBtn);
-  showSidePanel(null); // both sides visible in free orbit
+  // Keep a single side panel visible — the one currently facing up.
+  showSidePanel(preview3d.topSide);
   els.viewHint.textContent = 'Drag to orbit · scroll to zoom';
 });
 
 // ── Boot ────────────────────────────────────────────────────────────────
 preview3d.setMetal(state.metal);
-showSidePanel(null);
+preview3d.viewSideA(state.radius); // default to Side A
+showSidePanel('A');
 refreshAll();

@@ -219,37 +219,38 @@
       </section>
     </aside>
 
-    <!-- ══════════ 3D Preview ══════════ -->
-    <section class="preview3d-area">
-      <div class="preview3d-header">
-        <h2>3D Preview</h2>
-        <span class="hint" id="viewHint">Drag to orbit · scroll to zoom</span>
-      </div>
-      <!-- View controls (separated from the properties panels) -->
-      <div class="view-toolbar">
-        <div class="view-buttons">
-          <button class="view-btn active" id="viewTopBtn">Top-down</button>
-          <button class="view-btn" id="viewABtn">Side A</button>
-          <button class="view-btn" id="viewBBtn">Side B</button>
-          <button class="view-btn" id="flipBtn">Flip coin</button>
-          <button class="view-btn" id="orbitBtn">Free orbit</button>
+    <!-- ══════════ Pinned previews (3D + 2D) ══════════ -->
+    <div class="pinned-previews">
+      <section class="preview3d-area">
+        <div class="preview3d-header">
+          <h2>3D Preview</h2>
+          <span class="hint" id="viewHint">Drag to orbit · scroll to zoom</span>
         </div>
-        <label class="view-depth-toggle"><input type="checkbox" id="showDepthCheck" /> Show depth map</label>
-      </div>
-      <div class="canvas-wrap" id="canvasWrap"></div>
-    </section>
+        <!-- View controls (separated from the properties panels) -->
+        <div class="view-toolbar">
+          <div class="view-buttons">
+            <button class="view-btn active" id="viewABtn">Side A</button>
+            <button class="view-btn" id="viewBBtn">Side B</button>
+            <button class="view-btn" id="flipBtn">Flip coin</button>
+            <button class="view-btn" id="orbitBtn">Free orbit</button>
+          </div>
+          <label class="view-depth-toggle"><input type="checkbox" id="showDepthCheck" /> Show depth map</label>
+        </div>
+        <div class="canvas-wrap" id="canvasWrap"></div>
+      </section>
 
-    <!-- ══════════ 2D Previews ══════════ -->
-    <section class="preview2d-area">
-      <div class="preview2d-card">
-        <h3><span class="side-badge badge-a">A</span> Side A — 2D</h3>
-        <canvas id="canvasA" width="1024" height="1024"></canvas>
-      </div>
-      <div class="preview2d-card">
-        <h3><span class="side-badge badge-b">B</span> Side B — 2D</h3>
-        <canvas id="canvasB" width="1024" height="1024"></canvas>
-      </div>
-    </section>
+      <!-- ══════════ 2D Previews ══════════ -->
+      <section class="preview2d-area">
+        <div class="preview2d-card">
+          <h3><span class="side-badge badge-a">A</span> Side A — 2D</h3>
+          <canvas id="canvasA" width="1024" height="1024"></canvas>
+        </div>
+        <div class="preview2d-card">
+          <h3><span class="side-badge badge-b">B</span> Side B — 2D</h3>
+          <canvas id="canvasB" width="1024" height="1024"></canvas>
+        </div>
+      </section>
+    </div>
   </main>
 
   <footer class="app-footer">

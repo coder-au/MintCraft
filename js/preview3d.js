@@ -327,11 +327,6 @@ App.CoinPreview3D = class CoinPreview3D {
     };
   }
 
-  /** Top-down view of the current top face. */
-  viewTopDown(radius) {
-    this._tweenCamera(new THREE.Vector3(0, radius * 3.2, 0.001));
-  }
-
   /** Look straight at side A (+Y face). */
   viewSideA(radius) {
     if (this._isFlipped()) this.flip(); // ensure A is up
@@ -371,6 +366,23 @@ App.CoinPreview3D = class CoinPreview3D {
   /** Which side currently faces up: 'A' or 'B'. */
   get topSide() {
     return this._isFlipped() ? 'B' : 'A';
+  }
+
+  /**
+   * Is the given side ('A' or 'B') "mostly facing" the viewer?
+   * Computes the world normal of that face and checks its alignment with the
+   * camera view direction. Returns true when the face points more toward the
+   * camera than away (dot > cos(threshold), i.e. within ~60° of head-on).
+   */
+  isSideMostlyFacing(side /* 'A' | 'B' */, thresholdDeg = 60) {
+    // Local face normal: +Y for A (top), −Y for B (bottom).
+    const local = new THREE.Vector3(0, side === 'A' ? 1 : -1, 0);
+    // World normal after the coin's flip rotation.
+    const world = local.clone().applyQuaternion(this.coinGroup.quaternion).normalize();
+    // Direction from coin centre toward the camera.
+    const toCam = this.camera.position.clone().sub(this.coinGroup.position).normalize();
+    const cosThreshold = Math.cos((thresholdDeg * Math.PI) / 180);
+    return world.dot(toCam) > cosThreshold;
   }
 
   // ────────────────────────────────────────────────────────────────────
