@@ -223,6 +223,46 @@ DepthMap.upsample = function (data, srcSize, dstSize) {
 }
 
 /**
+ * Bilinear resample of a rectangular grid to another rectangle.
+ * @returns {Float32Array}
+ */
+function resampleRect(data, sw, sh, dw, dh) {
+  const out = new Float32Array(dw * dh);
+  const sx = sw / dw, sy = sh / dh;
+  for (let y = 0; y < dh; y++) {
+    const fy = (y + 0.5) * sy - 0.5;
+    const y0 = Math.max(0, Math.floor(fy));
+    const y1 = Math.min(sh - 1, y0 + 1);
+    const ty = Math.min(1, Math.max(0, fy - y0));
+    for (let x = 0; x < dw; x++) {
+      const fx = (x + 0.5) * sx - 0.5;
+      const x0 = Math.max(0, Math.floor(fx));
+      const x1 = Math.min(sw - 1, x0 + 1);
+      const tx = Math.min(1, Math.max(0, fx - x0));
+      const a = data[y0 * sw + x0], b = data[y0 * sw + x1];
+      const c = data[y1 * sw + x0], d = data[y1 * sw + x1];
+      out[y * dw + x] = (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+    }
+  }
+  return out;
+}
+
+/** Downsample a rectangular grid so its long edge ≈ maxEdge. Returns {data,width,height}. */
+DepthMap.downsampleRect = function (data, w, h, maxEdge) {
+  const long = Math.max(w, h);
+  if (long <= maxEdge) return { data, width: w, height: h };
+  const s = maxEdge / long;
+  const dw = Math.max(2, Math.round(w * s));
+  const dh = Math.max(2, Math.round(h * s));
+  return { data: resampleRect(data, w, h, dw, dh), width: dw, height: dh };
+}
+
+/** Upsample a rectangular grid to a target width/height. */
+DepthMap.upsampleRect = function (data, sw, sh, dw, dh) {
+  return resampleRect(data, sw, sh, dw, dh);
+}
+
+/**
  * Resample an AI depth grid (cover-fit square of the *untransformed* image)
  * into the coin depth grid, applying the same user transform (scale, offset,
  * rotation) that `imageToDepthMap` applies when drawing the source image —
@@ -235,29 +275,42 @@ DepthMap.upsample = function (data, srcSize, dstSize) {
  *
  * @param {Float32Array} ai      AI depth values (aiSize × aiSize, 0..1).
  * @param {number} aiSize        AI grid resolution.
- * @param {number} dstSize       Destination grid resolution.
+ * @param {number} dstW          Destination grid width.
+ * @param {number} dstH          Destination grid height (defaults to dstW).
  * @param {object} t             { scale, ox, oy, rot } user transform.
- * @returns {Float32Array} dstSize × dstSize
+ * @returns {Float32Array} dstW × dstH
  */
-DepthMap.resampleAIDepth = function (ai, aiSize, dstSize, t) {
+DepthMap.resampleAIDepth = function (ai, aiSize, dstW, dstH, t, fit) {
+  t = t || {};
   const tScale = t.scale != null ? t.scale : 1;
   const tOx = t.ox || 0;
   const tOy = t.oy || 0;
   const tRot = ((t.rot || 0) * Math.PI) / 180;
   const cos = Math.cos(-tRot);
   const sin = Math.sin(-tRot);
+  const dstSize = Math.max(dstW, dstH);
   const k = (aiSize / dstSize) / Math.max(0.01, tScale);
-  const half = dstSize / 2;
+  const halfW = dstW / 2, halfH = dstH / 2;
   const aiHalf = aiSize / 2;
 
-  const out = new Float32Array(dstSize * dstSize);
-  for (let y = 0; y < dstSize; y++) {
-    const dy = y - half - tOy;
-    for (let x = 0; x < dstSize; x++) {
-      const dx = x - half - tOx;
-      // Undo rotation, then scale into the AI grid.
-      const u = aiHalf + (dx * cos - dy * sin) * k;
-      const v = aiHalf + (dx * sin + dy * cos) * k;
+  const out = new Float32Array(dstW * dstH);
+  for (let y = 0; y < dstH; y++) {
+    const dy = y - halfH - tOy;
+    for (let x = 0; x < dstW; x++) {
+      const dx = x - halfW - tOx;
+      let u, v;
+      if (fit) {
+        // Fit mode: the AI grid spans the whole (uncropped) image, so map the
+        // destination pixel by normalized position — no cover-fit scale/crop.
+        const nu = (dx * cos - dy * sin) / (tScale * dstW);
+        const nv = (dx * sin + dy * cos) / (tScale * dstH);
+        u = aiHalf + nu * aiSize;
+        v = aiHalf + nv * aiSize;
+      } else {
+        // Cover mode: undo rotation, then scale into the cover-fit AI grid.
+        u = aiHalf + (dx * cos - dy * sin) * k;
+        v = aiHalf + (dx * sin + dy * cos) * k;
+      }
       if (u < 0 || v < 0 || u > aiSize - 1 || v > aiSize - 1) continue; // far
       // Bilinear sample.
       const x0 = Math.floor(u), y0 = Math.floor(v);
@@ -266,7 +319,7 @@ DepthMap.resampleAIDepth = function (ai, aiSize, dstSize, t) {
       const fx = u - x0, fy = v - y0;
       const a = ai[y0 * aiSize + x0], b = ai[y0 * aiSize + x1];
       const c = ai[y1 * aiSize + x0], d = ai[y1 * aiSize + x1];
-      out[y * dstSize + x] = (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+      out[y * dstW + x] = (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
     }
   }
   return out;
@@ -297,8 +350,6 @@ DepthMap.resampleAIDepth = function (ai, aiSize, dstSize, t) {
  *        (maps to range sigma 0.01..0.5). Higher = preserve finer edges.
  * @param {boolean} [opts.normalize]  Histogram-stretch depth to full range.
  * @param {number} [opts.gamma]       Mid-tone curve (default 1).
- * @param {number} [opts.finishSmooth] Final edge-preserving surface-finish
- *        pass (px, 0 = off) applied LAST (after invert) to round micro-facets.
  * @param {object} [opts.transform] Image placement against the coin:
  *        { scale (multiplier, 1 = 100%), ox (px), oy (px), rot (degrees) }.
  * @param {string} [opts.depthSource] 'luminance' (default) | 'ai' | 'hybrid'.
@@ -307,7 +358,11 @@ DepthMap.resampleAIDepth = function (ai, aiSize, dstSize, t) {
  *        for 'ai' and 'hybrid' sources.
  * @param {number} [opts.aiDetail] Hybrid only: how much high-frequency
  *        luminance detail to engrave on top of the AI base shape (0..1).
- * @returns {{ data: Float32Array, size: number }} depth values in [0,1].
+ * @param {number} [opts.fitAspect] When > 0, the grid is rectangular with
+ *        this width/height aspect (matching the source image) and the image
+ *        is *fit* (not cropped) so nothing is clipped. Used for plaques.
+ * @returns {{ data: Float32Array, size: number, width: number, height: number }}
+ *        depth values in [0,1]; width/height equal size unless fitAspect is set.
  */
 DepthMap.imageToDepthMap = function (image, opts) {
   const {
@@ -320,10 +375,10 @@ DepthMap.imageToDepthMap = function (image, opts) {
     edgePreserve = 40,
     normalize = false,
     gamma = 1,
-    finishSmooth = 0,
     depthSource = 'luminance',
     aiDepth = null,
     aiDetail = 0.25,
+    fitAspect = 0,
   } = opts;
   const t = opts.transform || {};
   const tScale = t.scale != null ? t.scale : 1;
@@ -331,33 +386,43 @@ DepthMap.imageToDepthMap = function (image, opts) {
   const tOy = t.oy || 0;
   const tRot = ((t.rot || 0) * Math.PI) / 180;
 
+  // Grid resolution: square for coins, image-aspect rectangle for plaques.
+  let W = size, H = size;
+  if (fitAspect > 0) {
+    if (fitAspect >= 1) { W = size; H = Math.max(2, Math.round(size / fitAspect)); }
+    else { H = size; W = Math.max(2, Math.round(size * fitAspect)); }
+  }
+
   const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
+  canvas.width = W;
+  canvas.height = H;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-  // Cover-fit: scale so the image fills the square, crop the overflow.
   const iw = image.naturalWidth || image.width;
   const ih = image.naturalHeight || image.height;
-  const scale = Math.max(size / iw, size / ih);
+  // fitAspect: the grid already matches the image aspect, so a plain fill
+  // draws the whole image with no crop. Otherwise cover-fit (crop overflow).
+  const scale = fitAspect > 0
+    ? Math.max(W / iw, H / ih)
+    : Math.max(size / iw, size / ih);
   const dw = iw * scale * tScale;
   const dh = ih * scale * tScale;
 
   // Draw centered, then apply the user's translate + rotate about the centre.
   ctx.save();
-  ctx.translate(size / 2 + tOx, size / 2 + tOy);
+  ctx.translate(W / 2 + tOx, H / 2 + tOy);
   ctx.rotate(tRot);
   ctx.drawImage(image, -dw / 2, -dh / 2, dw, dh);
   ctx.restore();
 
-  const pixels = ctx.getImageData(0, 0, size, size).data;
+  const pixels = ctx.getImageData(0, 0, W, H).data;
 
   // 1) Base depth signal.
   //    'luminance' — Rec. 601 luminance (bright = raised). Classic.
   //    'ai'        — object-aware scene depth (near = raised) from the model.
   //    'hybrid'    — AI base shape + high-pass luminance detail on top.
-  let depth = new Float32Array(size * size);
-  for (let i = 0; i < size * size; i++) {
+  let depth = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) {
     const r = pixels[i * 4];
     const g = pixels[i * 4 + 1];
     const b = pixels[i * 4 + 2];
@@ -366,9 +431,9 @@ DepthMap.imageToDepthMap = function (image, opts) {
 
   const useAI = (depthSource === 'ai' || depthSource === 'hybrid') && aiDepth && aiDepth.data;
   if (useAI) {
-    const aiGrid = DepthMap.resampleAIDepth(aiDepth.data, aiDepth.size, size, {
+    const aiGrid = DepthMap.resampleAIDepth(aiDepth.data, aiDepth.size, W, H, {
       scale: tScale, ox: tOx, oy: tOy, rot: t.rot || 0,
-    });
+    }, fitAspect > 0);
     if (depthSource === 'ai') {
       depth = aiGrid;
     } else {
@@ -378,11 +443,13 @@ DepthMap.imageToDepthMap = function (image, opts) {
       const HP_WORK = 512;
       const hpSigma = 6; // px at HP_WORK — splits "shape" from "engraving"
       let lp;
-      if (size > HP_WORK) {
-        const smallLum = DepthMap.downsample(depth, size, HP_WORK);
-        lp = DepthMap.upsample(DepthMap.gaussianBlur(smallLum, HP_WORK, HP_WORK, hpSigma), HP_WORK, size);
+      if (Math.max(W, H) > HP_WORK) {
+        const smallLum = DepthMap.downsampleRect(depth, W, H, HP_WORK);
+        const sw = smallLum.width, sh = smallLum.height;
+        lp = DepthMap.upsampleRect(
+          DepthMap.gaussianBlur(smallLum.data, sw, sh, hpSigma), sw, sh, W, H);
       } else {
-        lp = DepthMap.gaussianBlur(depth, size, size, hpSigma * (size / HP_WORK));
+        lp = DepthMap.gaussianBlur(depth, W, H, hpSigma * (Math.max(W, H) / HP_WORK));
       }
       const amt = Math.min(1, Math.max(0, aiDetail));
       for (let i = 0; i < depth.length; i++) {
@@ -393,36 +460,36 @@ DepthMap.imageToDepthMap = function (image, opts) {
     }
   }
 
-  // 2+3) Denoise + smoothing run on a capped working grid (≤ WORK²) so the
-  //      expensive per-pixel filters stay fast at full resolution, then the
-  //      result is upsampled back. Smoothing is low-frequency by nature, so
-  //      doing it on a smaller grid loses no visible detail.
+  // 2+3) Denoise + smoothing run on a capped working grid (≤ WORK on the long
+  //      edge) so the expensive per-pixel filters stay fast at full
+  //      resolution, then the result is upsampled back.
   const WORK = 512;
   const needSmooth = blurSigma > 0;
-  if (needSmooth && size > WORK) {
-    const scaledSigma = blurSigma * (WORK / size);
-    let w = DepthMap.downsample(depth, size, WORK);
-    w = DepthMap.medianFilter3x3(w, WORK, WORK);
+  if (needSmooth && Math.max(W, H) > WORK) {
+    const scaledSigma = blurSigma * (WORK / Math.max(W, H));
+    let w = DepthMap.downsampleRect(depth, W, H, WORK);
+    const sw = w.width, sh = w.height;
+    let wd = DepthMap.medianFilter3x3(w.data, sw, sh);
     if (smoothMode === 'gaussian') {
-      w = DepthMap.gaussianBlur(w, WORK, WORK, scaledSigma);
+      wd = DepthMap.gaussianBlur(wd, sw, sh, scaledSigma);
     } else {
       const rangeSigma = 0.5 - (Math.min(100, Math.max(1, edgePreserve)) / 100) * 0.49;
-      w = DepthMap.bilateralFilter(w, WORK, WORK, Math.max(0.5, scaledSigma), rangeSigma);
+      wd = DepthMap.bilateralFilter(wd, sw, sh, Math.max(0.5, scaledSigma), rangeSigma);
     }
-    const smoothed = DepthMap.upsample(w, WORK, size);
+    const smoothed = DepthMap.upsampleRect(wd, sw, sh, W, H);
     // Blend: keep full-res detail but apply the low-frequency smoothing.
     for (let i = 0; i < depth.length; i++) depth[i] = smoothed[i];
   } else if (needSmooth) {
-    depth = DepthMap.medianFilter3x3(depth, size, size);
+    depth = DepthMap.medianFilter3x3(depth, W, H);
     if (smoothMode === 'gaussian') {
-      depth = DepthMap.gaussianBlur(depth, size, size, blurSigma);
+      depth = DepthMap.gaussianBlur(depth, W, H, blurSigma);
     } else {
       const rangeSigma = 0.5 - (Math.min(100, Math.max(1, edgePreserve)) / 100) * 0.49;
-      depth = DepthMap.bilateralFilter(depth, size, size, blurSigma, rangeSigma);
+      depth = DepthMap.bilateralFilter(depth, W, H, blurSigma, rangeSigma);
     }
   } else {
     // No smoothing: still apply a light median to kill speckle, at full res.
-    depth = DepthMap.medianFilter3x3(depth, size, size);
+    depth = DepthMap.medianFilter3x3(depth, W, H);
   }
 
   // 4) Histogram stretch to full range (helps low-contrast sources).
@@ -449,21 +516,7 @@ DepthMap.imageToDepthMap = function (image, opts) {
     for (let i = 0; i < depth.length; i++) depth[i] = 1 - depth[i];
   }
 
-  // 7) Final surface-finish pass (edge-preserving). Runs LAST, on the shaped
-  //    depth map, to round micro-facets the tone curve may have introduced.
-  //    Done on a capped working grid for speed, then upsampled.
-  if (finishSmooth > 0) {
-    if (size > WORK) {
-      const scaledSigma = Math.max(0.5, finishSmooth * (WORK / size));
-      let w = DepthMap.downsample(depth, size, WORK);
-      w = DepthMap.bilateralFilter(w, WORK, WORK, scaledSigma, 0.12);
-      depth = DepthMap.upsample(w, WORK, size);
-    } else {
-      depth = DepthMap.bilateralFilter(depth, size, size, finishSmooth, 0.12);
-    }
-  }
-
-  return { data: depth, size };
+  return { data: depth, size: Math.max(W, H), width: W, height: H };
 }
 
 /**
@@ -480,20 +533,45 @@ DepthMap.imageToDepthMap = function (image, opts) {
  * @param {number}  opts.relief        Relief strength for the shading.
  */
 DepthMap.renderCoinFace2D = function (canvas, depth, gridSize, opts = {}) {
-  const { showDepthMap = false, relief = 2, edgeFrac = 0, tint = [219, 176, 96] } = opts;
+  const {
+    showDepthMap = false, relief = 2, edgeFrac = 0, tint = [219, 176, 96],
+    shape = 'coin', aspect = 1, gridW = 0, gridH = 0,
+  } = opts;
+  // Rectangular depth grids (plaques) carry their own dims; square otherwise.
+  const gW = gridW || gridSize;
+  const gH = gridH || gridSize;
   const [tintR, tintG, tintB] = tint;
   const size = canvas.width;
   const ctx = canvas.getContext('2d');
   const cx = size / 2;
   const cy = size / 2;
   const radius = size / 2;
-  const edgePx = edgeFrac * radius; // rim-band width in canvas pixels
+  // The raised edge is a display/embossing concept, not part of the depth map
+  // itself — suppress it in the raw depth-map view.
+  const edgePx = showDepthMap ? 0 : edgeFrac * radius;
+
+  // Plaque: rectangle footprint (aspect = width/height) fit to the square.
+  const rectHW = aspect >= 1 ? cx : cx * aspect; // half-width in px
+  const rectHH = aspect >= 1 ? cy / aspect : cy; // half-height in px
+
+  // Inside-object test. Coin = disc, plaque = rectangle.
+  const inside = shape === 'rect'
+    ? (dx, dy) => Math.abs(dx) <= rectHW && Math.abs(dy) <= rectHH
+    : (dx, dy) => Math.sqrt(dx * dx + dy * dy) <= radius;
+
+  // The depth grid may be non-square (fit to the image). For a coin's square
+  // face, center-crop it: the face samples the central square of the grid.
+  // For a plaque the grid is already the rectangle's aspect → sample directly.
+  const cropX0 = shape === 'coin' ? (gW - Math.min(gW, gH)) / 2 : 0;
+  const cropY0 = shape === 'coin' ? (gH - Math.min(gW, gH)) / 2 : 0;
+  const cropW = shape === 'coin' ? Math.min(gW, gH) : gW;
+  const cropH = shape === 'coin' ? Math.min(gW, gH) : gH;
 
   // Hard rim-band mask: image relief applies only within the inner face; the
   // outer band is a full-height raised edge at 90° to the face, so the image
-  // never affects the edge (matches the 3D preview).
+  // never affects the edge (matches the 3D preview). Coin only.
   const applyEdge = (d, dist) => {
-    if (edgePx <= 0) return d;
+    if (edgePx <= 0 || shape !== 'coin') return d;
     return dist < radius - edgePx ? d : 1.0;
   };
 
@@ -511,27 +589,32 @@ DepthMap.renderCoinFace2D = function (canvas, depth, gridSize, opts = {}) {
       const dist = Math.sqrt(dx * dx + dy * dy);
       const idx = (y * size + x) * 4;
 
-      if (dist > radius) {
-        px[idx + 3] = 0; // transparent outside the disc
+      if (!inside(dx, dy)) {
+        px[idx + 3] = 0; // transparent outside the object
         continue;
       }
 
       // Sample depth grid with true bilinear interpolation (removes blockiness).
       let d = 0.5, gxGrad = 0, gyGrad = 0;
       if (depth) {
-        const fx = (x / size) * (gridSize - 1);
-        const fy = (y / size) * (gridSize - 1);
-        const x0 = Math.min(gridSize - 1, Math.max(0, Math.floor(fx)));
-        const y0 = Math.min(gridSize - 1, Math.max(0, Math.floor(fy)));
-        const x1 = Math.min(gridSize - 1, x0 + 1);
-        const y1 = Math.min(gridSize - 1, y0 + 1);
-        const tx = Math.min(1, Math.max(0, fx - x0));
-        const ty = Math.min(1, Math.max(0, fy - y0));
+        // Normalized position within the sampled region (rect = whole grid,
+        // coin = center-cropped square of the grid).
+        const u = shape === 'rect' ? (dx + rectHW) / (2 * rectHW) : x / size;
+        const w = shape === 'rect' ? (dy + rectHH) / (2 * rectHH) : y / size;
+        // Map into the sampled grid region (coin: center-cropped square).
+        const gx = cropX0 + u * (cropW - 1);
+        const gy = cropY0 + w * (cropH - 1);
+        const x0 = Math.min(gW - 1, Math.max(0, Math.floor(gx)));
+        const y0 = Math.min(gH - 1, Math.max(0, Math.floor(gy)));
+        const x1 = Math.min(gW - 1, x0 + 1);
+        const y1 = Math.min(gH - 1, y0 + 1);
+        const tx = Math.min(1, Math.max(0, gx - x0));
+        const ty = Math.min(1, Math.max(0, gy - y0));
 
-        const s00 = depth[y0 * gridSize + x0];
-        const s10 = depth[y0 * gridSize + x1];
-        const s01 = depth[y1 * gridSize + x0];
-        const s11 = depth[y1 * gridSize + x1];
+        const s00 = depth[y0 * gW + x0];
+        const s10 = depth[y0 * gW + x1];
+        const s01 = depth[y1 * gW + x0];
+        const s11 = depth[y1 * gW + x1];
 
         d = (s00 * (1 - tx) + s10 * tx) * (1 - ty) + (s01 * (1 - tx) + s11 * tx) * ty;
 
@@ -586,4 +669,30 @@ DepthMap.renderCoinFace2D = function (canvas, depth, gridSize, opts = {}) {
   }
 
   ctx.putImageData(img, 0, 0);
+}
+
+/**
+ * Draw the source image cover-fit (centered, cropped) into a square canvas —
+ * the same placement the depth grid uses, so it lines up with the depth and
+ * final-result 2D panels. Clears to a dark panel when there is no image.
+ */
+DepthMap.renderSourceImage = function (canvas, image, gridSize, opts = {}) {
+  const { fit = false } = opts;
+  const size = canvas.width;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  if (!image) {
+    ctx.fillStyle = '#0a0d12';
+    ctx.fillRect(0, 0, size, size);
+    return;
+  }
+  const iw = image.naturalWidth || image.width;
+  const ih = image.naturalHeight || image.height;
+  // fit: whole image visible (letterbox) — matches the plaque's no-crop depth
+  // grid. cover: fill the square (coin) — matches its cover-fit depth grid.
+  const scale = fit ? Math.min(size / iw, size / ih) : Math.max(size / iw, size / ih);
+  const dw = iw * scale;
+  const dh = ih * scale;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(image, (size - dw) / 2, (size - dh) / 2, dw, dh);
 }

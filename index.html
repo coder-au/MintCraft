@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MintCraft — Coin / Medallion Viewer &amp; Editor</title>
+  <title>MintCraft — Custom Depth Viewer &amp; Editor</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -11,7 +11,7 @@
     <div class="brand">
       <span class="brand-icon">◉</span>
       <h1>MintCraft</h1>
-      <span class="brand-sub">Custom Coin / Medallion Viewer &amp; Editor</span>
+      <span class="brand-sub">Custom Depth Viewer &amp; Editor</span>
     </div>
   </header>
 
@@ -19,31 +19,54 @@
     <!-- ══════════ Sidebar / Controls ══════════ -->
     <aside class="sidebar">
 
-      <!-- Coin dimensions -->
+      <!-- Dimensions -->
       <section class="panel">
-        <h2>Coin Dimensions</h2>
+        <h2>Dimensions</h2>
         <div class="preset-row">
           <label>Preset</label>
           <div class="preset-buttons">
-            <button class="preset-btn" data-r="19"  data-d="1.5">US Quarter</button>
-            <button class="preset-btn" data-r="30"  data-d="3.0">Medallion</button>
-            <button class="preset-btn" data-r="15"  data-d="5.0">Token</button>
-            <button class="preset-btn" data-r="25"  data-d="12">Challenge Coin</button>
+            <button class="preset-btn" data-shape="coin" data-r="30"  data-d="3.0">Medallion</button>
+            <button class="preset-btn" data-shape="plaque" data-x="80" data-y="50" data-z="4">Plaque</button>
           </div>
         </div>
-        <div class="slider-row">
-          <label for="radiusSlider">Radius <span class="val" id="radiusVal">30 mm</span></label>
-          <input type="range" id="radiusSlider" min="10" max="50" step="0.5" value="30" />
+
+        <!-- Coin (cylinder) dimensions -->
+        <div id="coinDims">
+          <div class="slider-row">
+            <label for="radiusSlider">Radius <span class="val" id="radiusVal">30 mm</span></label>
+            <input type="range" id="radiusSlider" min="10" max="50" step="0.5" value="30" />
+          </div>
+          <div class="slider-row">
+            <label for="depthSlider">Depth <span class="val" id="depthVal">3 mm</span></label>
+            <input type="range" id="depthSlider" min="1" max="20" step="0.5" value="3" />
+          </div>
         </div>
-        <div class="slider-row">
-          <label for="depthSlider">Depth <span class="val" id="depthVal">3 mm</span></label>
-          <input type="range" id="depthSlider" min="1" max="20" step="0.5" value="3" />
+
+        <!-- Plaque (rectangular cuboid) dimensions -->
+        <div id="plaqueDims" hidden>
+          <div class="slider-row">
+            <label for="plaqueX">Width (X) <span class="val" id="plaqueXVal">80 mm</span></label>
+            <input type="range" id="plaqueX" min="20" max="200" step="1" value="80" />
+          </div>
+          <div class="slider-row">
+            <label for="plaqueY">Height (Y) <span class="val" id="plaqueYVal">50 mm</span></label>
+            <input type="range" id="plaqueY" min="20" max="200" step="1" value="50" />
+          </div>
+          <div class="slider-row">
+            <label for="plaqueZ">Thickness (Z) <span class="val" id="plaqueZVal">4 mm</span></label>
+            <input type="range" id="plaqueZ" min="1" max="30" step="0.5" value="4" />
+          </div>
+          <div class="slider-row">
+            <label for="bevelSlider">Bevel <span class="val" id="bevelVal">1 mm</span></label>
+            <input type="range" id="bevelSlider" min="0" max="6" step="0.25" value="1" />
+          </div>
         </div>
+
         <div class="slider-row">
           <label for="reliefSlider">Relief height <span class="val" id="reliefVal">2 mm</span></label>
           <input type="range" id="reliefSlider" min="0.5" max="5" step="0.1" value="2" />
         </div>
-        <div class="slider-row">
+        <div class="slider-row" id="edgeRow">
           <label for="edgeSlider">Edge thickness <span class="val" id="edgeVal">2 mm</span></label>
           <input type="range" id="edgeSlider" min="0" max="8" step="0.25" value="2" />
         </div>
@@ -59,16 +82,16 @@
         </div>
       </section>
 
-      <!-- Side A upload -->
+      <!-- Source image upload -->
       <section class="panel side-panel" id="panelA">
-        <h2><span class="side-badge badge-a">A</span> Side A — Image</h2>
+        <h2><span class="side-badge badge-a">◉</span> Source Image</h2>
         <div class="dropzone" id="dropzoneA" tabindex="0">
           <p class="dz-title">Drop image here</p>
           <p class="dz-sub">or click to browse (JPEG, PNG, BMP, WebP)</p>
           <div class="dz-thumb-wrap"><img class="dz-thumb" id="thumbA" alt="" hidden /></div>
         </div>
         <input type="file" id="fileA" accept=".jpg,.jpeg,.png,.bmp,.webp,image/jpeg,image/png,image/bmp,image/webp" hidden />
-        <button class="mini-btn" id="clearA" disabled>Clear side A</button>
+        <button class="mini-btn" id="clearA" disabled>Clear image</button>
 
         <div class="transform-controls" id="transformA">
           <h3>Position &amp; Scale</h3>
@@ -139,108 +162,7 @@
             <label for="gammaA">Gamma <span class="val" id="gammaAVal">1.0</span></label>
             <input type="range" id="gammaA" min="0.3" max="3" step="0.05" value="1" />
           </div>
-          <div class="slider-row">
-            <label for="finishA">Finish smooth <span class="val" id="finishAVal">0 px</span></label>
-            <input type="range" id="finishA" min="0" max="8" step="0.5" value="0" />
-          </div>
           <button class="mini-btn" id="resetDepthA">Reset conversion</button>
-        </div>
-      </section>
-
-      <!-- Side B upload -->
-      <section class="panel side-panel" id="panelB">
-        <h2><span class="side-badge badge-b">B</span> Side B — Image</h2>
-        <div class="dropzone" id="dropzoneB" tabindex="0">
-          <p class="dz-title">Drop image here</p>
-          <p class="dz-sub">or click to browse (JPEG, PNG, BMP, WebP)</p>
-          <div class="dz-thumb-wrap"><img class="dz-thumb" id="thumbB" alt="" hidden /></div>
-        </div>
-        <input type="file" id="fileB" accept=".jpg,.jpeg,.png,.bmp,.webp,image/jpeg,image/png,image/bmp,image/webp" hidden />
-        <button class="mini-btn" id="clearB" disabled>Clear side B</button>
-
-        <div class="transform-controls" id="transformB">
-          <h3>Position &amp; Scale</h3>
-          <div class="slider-row">
-            <label for="scaleB">Scale <span class="val" id="scaleBVal">100%</span></label>
-            <input type="range" id="scaleB" min="25" max="300" step="1" value="100" />
-          </div>
-          <div class="slider-row">
-            <label for="offsetXB">Offset X <span class="val" id="offsetXBVal">0 px</span></label>
-            <input type="range" id="offsetXB" min="-512" max="512" step="1" value="0" />
-          </div>
-          <div class="slider-row">
-            <label for="offsetYB">Offset Y <span class="val" id="offsetYBVal">0 px</span></label>
-            <input type="range" id="offsetYB" min="-512" max="512" step="1" value="0" />
-          </div>
-          <div class="slider-row">
-            <label for="rotB">Rotation <span class="val" id="rotBVal">0°</span></label>
-            <input type="range" id="rotB" min="-180" max="180" step="1" value="0" />
-          </div>
-          <button class="mini-btn" id="resetB">Reset transform</button>
-        </div>
-
-        <div class="transform-controls">
-          <h3>Depth-Map Conversion</h3>
-          <div class="slider-row">
-            <label for="depthSourceB">Depth source</label>
-            <select id="depthSourceB" class="sel">
-              <option value="luminance" selected>Luminance (bright = raised)</option>
-              <option value="ai">AI — object-aware (local)</option>
-              <option value="hybrid">Hybrid — AI shape + image detail</option>
-            </select>
-            <p class="ai-status" id="aiStatusB" hidden></p>
-          </div>
-          <div class="slider-row" id="aiDetailRowB">
-            <label for="aiDetailB">Surface detail <span class="val" id="aiDetailBVal">25%</span></label>
-            <input type="range" id="aiDetailB" min="0" max="100" step="1" value="25" />
-          </div>
-          <div class="slider-row">
-            <label for="brightnessB">Brightness <span class="val" id="brightnessBVal">0</span></label>
-            <input type="range" id="brightnessB" min="-100" max="100" step="1" value="0" />
-          </div>
-          <div class="slider-row">
-            <label for="contrastB">Contrast <span class="val" id="contrastBVal">0</span></label>
-            <input type="range" id="contrastB" min="-100" max="100" step="1" value="0" />
-          </div>
-          <div class="check-row">
-            <label><input type="checkbox" id="invertB" /> Invert depth</label>
-          </div>
-          <div class="slider-row">
-            <label for="smoothModeB">Smoothing mode</label>
-            <select id="smoothModeB" class="sel">
-              <option value="bilateral" selected>Bilateral (edge-preserving)</option>
-              <option value="gaussian">Gaussian</option>
-            </select>
-          </div>
-          <div class="slider-row">
-            <label for="blurB">Smoothing strength <span class="val" id="blurBVal">0 px</span></label>
-            <input type="range" id="blurB" min="0" max="20" step="0.5" value="0" />
-          </div>
-          <div class="slider-row" id="edgeRowB">
-            <label for="edgeB">Edge preserve <span class="val" id="edgeBVal">40</span></label>
-            <input type="range" id="edgeB" min="1" max="100" step="1" value="40" />
-          </div>
-          <div class="check-row">
-            <label><input type="checkbox" id="normalizeB" /> Normalize depth range</label>
-          </div>
-          <div class="slider-row">
-            <label for="gammaB">Gamma <span class="val" id="gammaBVal">1.0</span></label>
-            <input type="range" id="gammaB" min="0.3" max="3" step="0.05" value="1" />
-          </div>
-          <div class="slider-row">
-            <label for="finishB">Finish smooth <span class="val" id="finishBVal">0 px</span></label>
-            <input type="range" id="finishB" min="0" max="8" step="0.5" value="0" />
-          </div>
-          <button class="mini-btn" id="resetDepthB">Reset conversion</button>
-        </div>
-      </section>
-
-      <!-- Apply to both sides -->
-      <section class="panel">
-        <h2>Apply Image to Both Sides</h2>
-        <div class="copy-row">
-          <button class="copy-btn" id="copyAtoB" disabled>A&nbsp;→&nbsp;both sides</button>
-          <button class="copy-btn" id="copyBtoA" disabled>B&nbsp;→&nbsp;both sides</button>
         </div>
       </section>
     </aside>
@@ -255,12 +177,14 @@
         <!-- View controls (separated from the properties panels) -->
         <div class="view-toolbar">
           <div class="view-buttons">
-            <button class="view-btn active" id="viewABtn">Side A</button>
-            <button class="view-btn" id="viewBBtn">Side B</button>
-            <button class="view-btn" id="flipBtn">Flip coin</button>
-            <button class="view-btn" id="orbitBtn">Free orbit</button>
+            <button class="view-btn active" id="viewABtn">Reset View</button>
           </div>
           <label class="view-depth-toggle"><input type="checkbox" id="showDepthCheck" /> Show depth map</label>
+          <div class="light-controls">
+            <label class="view-depth-toggle"><input type="checkbox" id="litCheck" checked /> Lit</label>
+            <input type="range" id="lightIntensity" min="0" max="3" step="0.05" value="1" title="Light intensity" />
+            <span class="val light-val" id="lightIntensityVal">100%</span>
+          </div>
         </div>
         <div class="canvas-wrap" id="canvasWrap"></div>
       </section>
@@ -268,19 +192,15 @@
       <!-- ══════════ 2D Previews ══════════ -->
       <section class="preview2d-area">
         <div class="preview2d-card">
-          <h3><span class="side-badge badge-a">A</span> Side A — 2D</h3>
-          <canvas id="canvasA" width="1024" height="1024"></canvas>
+          <h3>Original</h3>
+          <canvas id="canvasOrig" width="1024" height="1024"></canvas>
+        </div>
+        <div class="preview2d-card">
+          <h3>Depth Map</h3>
+          <canvas id="canvasDepth" width="1024" height="1024"></canvas>
           <div class="dl-row">
             <button class="dl-btn" id="dlPngA" disabled title="Download depth map as 16-bit grayscale PNG">⬇ PNG</button>
             <button class="dl-btn" id="dlTiffA" disabled title="Download depth map as 16-bit grayscale TIFF">⬇ TIFF</button>
-          </div>
-        </div>
-        <div class="preview2d-card">
-          <h3><span class="side-badge badge-b">B</span> Side B — 2D</h3>
-          <canvas id="canvasB" width="1024" height="1024"></canvas>
-          <div class="dl-row">
-            <button class="dl-btn" id="dlPngB" disabled title="Download depth map as 16-bit grayscale PNG">⬇ PNG</button>
-            <button class="dl-btn" id="dlTiffB" disabled title="Download depth map as 16-bit grayscale TIFF">⬇ TIFF</button>
           </div>
         </div>
       </section>
@@ -295,10 +215,14 @@
   <script src="lib/three.min.js"></script>
   <script src="lib/OrbitControls.classic.js"></script>
   <script src="lib/ort.all.min.js"></script>
-  <script src="js/depthmap.js"></script>
-  <script src="js/aidepth.js"></script>
-  <script src="js/export.js"></script>
-  <script src="js/preview3d.js"></script>
-  <script src="js/app.js"></script>
+  <!-- AI depth: embedded bundles let file:// pages load WASM + model without fetch() -->
+  <script src="lib/ort-st-loader-inline.js"></script>
+  <script src="lib/ort-wasm-st-bundle.js"></script>
+  <script src="models/model-bundle.js"></script>
+  <script src="js/depthmap.js?v=8"></script>
+  <script src="js/aidepth.js?v=8"></script>
+  <script src="js/export.js?v=8"></script>
+  <script src="js/preview3d.js?v=8"></script>
+  <script src="js/app.js?v=8"></script>
 </body>
 </html>

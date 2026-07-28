@@ -91,16 +91,17 @@ window.DepthMapExport = (function () {
    * @param {number} size
    * @returns {Blob}
    */
-  function encodePNG16(depth, size) {
+  function encodePNG16(depth, width, height) {
+    if (height == null) height = width; // square fallback
     const px = toUint16(depth);
 
     // Raw scanlines: filter byte 0 + big-endian 16-bit samples.
-    const raw = new Uint8Array(size * (1 + size * 2));
+    const raw = new Uint8Array(height * (1 + width * 2));
     let p = 0;
-    for (let y = 0; y < size; y++) {
+    for (let y = 0; y < height; y++) {
       raw[p++] = 0; // filter: None
-      const row = y * size;
-      for (let x = 0; x < size; x++) {
+      const row = y * width;
+      for (let x = 0; x < width; x++) {
         const v = px[row + x];
         raw[p++] = v >>> 8;
         raw[p++] = v & 0xff;
@@ -109,8 +110,8 @@ window.DepthMapExport = (function () {
 
     const ihdr = new Uint8Array(13);
     const dv = new DataView(ihdr.buffer);
-    dv.setUint32(0, size);  // width
-    dv.setUint32(4, size);  // height
+    dv.setUint32(0, width);  // width
+    dv.setUint32(4, height); // height
     ihdr[8] = 16;           // bit depth
     ihdr[9] = 0;            // color type: grayscale
     // compression 0, filter 0, interlace 0 (already zero)
@@ -131,7 +132,8 @@ window.DepthMapExport = (function () {
    * @param {number} size
    * @returns {Blob}
    */
-  function encodeTIFF16(depth, size) {
+  function encodeTIFF16(depth, width, height) {
+    if (height == null) height = width; // square fallback
     const px = toUint16(depth);
     const imageBytes = px.length * 2;
 
@@ -162,14 +164,14 @@ window.DepthMapExport = (function () {
       dv.setUint32(p + 8, value, true);
       p += 12;
     };
-    tag(256, 3, 1, size);               // ImageWidth (SHORT)
-    tag(257, 3, 1, size);               // ImageLength
+    tag(256, 3, 1, width);              // ImageWidth (SHORT)
+    tag(257, 3, 1, height);             // ImageLength
     tag(258, 3, 1, 16);                 // BitsPerSample
     tag(259, 3, 1, 1);                  // Compression: none
     tag(262, 3, 1, 1);                  // Photometric: BlackIsZero
     tag(273, 4, 1, dataOffset);         // StripOffsets
     tag(277, 3, 1, 1);                  // SamplesPerPixel
-    tag(278, 3, 1, size);               // RowsPerStrip (single strip)
+    tag(278, 3, 1, height);             // RowsPerStrip (single strip)
     tag(279, 4, 1, imageBytes);         // StripByteCounts
     tag(282, 5, 1, extraOffset);        // XResolution → RATIONAL
     tag(283, 5, 1, extraOffset + 8);    // YResolution → RATIONAL

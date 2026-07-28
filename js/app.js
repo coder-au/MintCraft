@@ -19,7 +19,6 @@ const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/bmp', 'image/x-ms-bmp'
 const defaultConversion = () => ({
   brightness: 0, contrast: 0, invert: false, blurSigma: 0,
   smoothMode: 'bilateral', edgePreserve: 40, normalize: false, gamma: 1,
-  finishSmooth: 0,
   depthSource: 'luminance', // 'luminance' | 'ai' | 'hybrid'
   aiDetail: 0.25,           // hybrid: luminance detail blend 0..1
 });
@@ -35,15 +34,21 @@ const METAL_TINTS = {
 
 // ── State ───────────────────────────────────────────────────────────────
 const state = {
-  radius: 30,          // mm
-  depth: 3,            // mm
+  shape: 'coin',       // 'coin' (cylinder) | 'plaque' (rectangular cuboid)
+  radius: 30,          // mm (coin)
+  depth: 3,            // mm (coin thickness)
+  plaque: { x: 80, y: 50, z: 4, bevel: 1 }, // mm (cuboid width/height/thickness/edge bevel)
   relief: 2,           // mm
-  edge: 2,             // mm — raised rim thickness on both faces
+  edge: 2,             // mm — raised rim thickness on both faces (coin)
   metal: 'brass',      // coin material
   showDepthMap: false,
+  gridW: DEPTH_GRID_SIZE, // current depth-grid dims (square for coin, image-aspect for plaque)
+  gridH: DEPTH_GRID_SIZE,
+  lit: true,           // 3D preview: lit (PBR) vs unlit (flat) rendering
+  lightIntensity: 1,   // 3D preview: key/fill/rim light scale 0..3
+  // Single working side. Kept as sides.A so per-side helpers stay generic.
   sides: {
     A: { image: null, depth: null, transform: defaultTransform(), conv: defaultConversion(), ai: null },
-    B: { image: null, depth: null, transform: defaultTransform(), conv: defaultConversion(), ai: null },
   },
 };
 
@@ -53,45 +58,36 @@ const els = {
   radiusSlider: $('radiusSlider'), radiusVal: $('radiusVal'),
   depthSlider: $('depthSlider'), depthVal: $('depthVal'),
   reliefSlider: $('reliefSlider'), reliefVal: $('reliefVal'),
-  edgeSlider: $('edgeSlider'), edgeVal: $('edgeVal'),
+  edgeSlider: $('edgeSlider'), edgeVal: $('edgeVal'), edgeRow: $('edgeRow'),
+  coinDims: $('coinDims'), plaqueDims: $('plaqueDims'),
+  plaqueX: $('plaqueX'), plaqueXVal: $('plaqueXVal'),
+  plaqueY: $('plaqueY'), plaqueYVal: $('plaqueYVal'),
+  plaqueZ: $('plaqueZ'), plaqueZVal: $('plaqueZVal'),
+  bevelSlider: $('bevelSlider'), bevelVal: $('bevelVal'),
   metalSelect: $('metalSelect'),
   showDepthCheck: $('showDepthCheck'),
-  dropzoneA: $('dropzoneA'), dropzoneB: $('dropzoneB'),
-  fileA: $('fileA'), fileB: $('fileB'),
-  thumbA: $('thumbA'), thumbB: $('thumbB'),
-  panelA: $('panelA'), panelB: $('panelB'),
-  clearA: $('clearA'), clearB: $('clearB'),
-  copyAtoB: $('copyAtoB'), copyBtoA: $('copyBtoA'),
+  litCheck: $('litCheck'),
+  lightIntensity: $('lightIntensity'), lightIntensityVal: $('lightIntensityVal'),
+  dropzoneA: $('dropzoneA'),
+  fileA: $('fileA'),
+  thumbA: $('thumbA'),
+  panelA: $('panelA'),
+  clearA: $('clearA'),
   scaleA: $('scaleA'), scaleAVal: $('scaleAVal'),
   offsetXA: $('offsetXA'), offsetXAVal: $('offsetXAVal'),
   offsetYA: $('offsetYA'), offsetYAVal: $('offsetYAVal'),
   rotA: $('rotA'), rotAVal: $('rotAVal'), resetA: $('resetA'),
-  scaleB: $('scaleB'), scaleBVal: $('scaleBVal'),
-  offsetXB: $('offsetXB'), offsetXBVal: $('offsetXBVal'),
-  offsetYB: $('offsetYB'), offsetYBVal: $('offsetYBVal'),
-  rotB: $('rotB'), rotBVal: $('rotBVal'), resetB: $('resetB'),
   brightnessA: $('brightnessA'), brightnessAVal: $('brightnessAVal'),
   contrastA: $('contrastA'), contrastAVal: $('contrastAVal'),
   invertA: $('invertA'), blurA: $('blurA'), blurAVal: $('blurAVal'), resetDepthA: $('resetDepthA'),
   smoothModeA: $('smoothModeA'), edgeA: $('edgeA'), edgeAVal: $('edgeAVal'), edgeRowA: $('edgeRowA'),
   normalizeA: $('normalizeA'), gammaA: $('gammaA'), gammaAVal: $('gammaAVal'),
-  finishA: $('finishA'), finishAVal: $('finishAVal'),
   depthSourceA: $('depthSourceA'), aiStatusA: $('aiStatusA'),
   aiDetailA: $('aiDetailA'), aiDetailAVal: $('aiDetailAVal'), aiDetailRowA: $('aiDetailRowA'),
-  brightnessB: $('brightnessB'), brightnessBVal: $('brightnessBVal'),
-  contrastB: $('contrastB'), contrastBVal: $('contrastBVal'),
-  invertB: $('invertB'), blurB: $('blurB'), blurBVal: $('blurBVal'), resetDepthB: $('resetDepthB'),
-  smoothModeB: $('smoothModeB'), edgeB: $('edgeB'), edgeBVal: $('edgeBVal'), edgeRowB: $('edgeRowB'),
-  normalizeB: $('normalizeB'), gammaB: $('gammaB'), gammaBVal: $('gammaBVal'),
-  finishB: $('finishB'), finishBVal: $('finishBVal'),
-  depthSourceB: $('depthSourceB'), aiStatusB: $('aiStatusB'),
-  aiDetailB: $('aiDetailB'), aiDetailBVal: $('aiDetailBVal'), aiDetailRowB: $('aiDetailRowB'),
-  canvasA: $('canvasA'), canvasB: $('canvasB'),
+  canvasOrig: $('canvasOrig'), canvasDepth: $('canvasDepth'),
   dlPngA: $('dlPngA'), dlTiffA: $('dlTiffA'),
-  dlPngB: $('dlPngB'), dlTiffB: $('dlTiffB'),
   canvasWrap: $('canvasWrap'),
-  viewABtn: $('viewABtn'), viewBBtn: $('viewBBtn'),
-  flipBtn: $('flipBtn'), orbitBtn: $('orbitBtn'),
+  viewABtn: $('viewABtn'),
   viewHint: $('viewHint'),
 };
 
@@ -111,17 +107,17 @@ function setAIStatus(side, text, isError = false) {
  * (once per image — AIDepth caches internally) and re-renders when ready.
  * @returns {boolean} true if the AI result is ready now.
  */
-function ensureAIDepth(side) {
+function ensureAIDepth(side, fit) {
   const s = state.sides[side];
   if (!s.image) return false;
-  if (s.ai && s.ai.image === s.image) return true; // ready
+  if (s.ai && s.ai.image === s.image && s.ai.fit === fit) return true; // ready
 
-  setAIStatus(side, AIDepth.isCached(s.image) ? 'Analyzing…' : 'Loading model & analyzing…');
+  setAIStatus(side, AIDepth.isCached(s.image, fit) ? 'Analyzing…' : 'Loading model & analyzing…');
   const imageAtRequest = s.image;
-  AIDepth.estimate(imageAtRequest)
+  AIDepth.estimate(imageAtRequest, fit)
     .then((res) => {
       if (state.sides[side].image !== imageAtRequest) return; // stale
-      s.ai = { image: imageAtRequest, data: res.data, size: res.size };
+      s.ai = { image: imageAtRequest, data: res.data, size: res.size, fit };
       setAIStatus(side, `Object-aware depth ready (${AIDepth.provider()})`);
       setTimeout(() => setAIStatus(side, ''), 2500);
       refreshAll();
@@ -129,63 +125,77 @@ function ensureAIDepth(side) {
     .catch((err) => {
       console.error('AI depth failed:', err);
       if (state.sides[side].image !== imageAtRequest) return;
-      setAIStatus(side, 'AI depth unavailable — using luminance. (Serve over http://, not file://)', true);
+      setAIStatus(side, 'AI depth unavailable — using luminance. (Reload the page and try again)', true);
     });
   return false;
 }
 
 // ── Rendering ───────────────────────────────────────────────────────────
 function refreshAll() {
-  for (const side of ['A', 'B']) {
-    const s = state.sides[side];
-    let aiDepth = null;
-    if (s.image && s.conv.depthSource !== 'luminance') {
-      if (ensureAIDepth(side)) aiDepth = s.ai; // else render luminance now, re-render when ready
-    }
-    s.depth = s.image
-      ? imageToDepthMap(s.image, {
-          size: DEPTH_GRID_SIZE,
-          brightness: s.conv.brightness,
-          contrast: s.conv.contrast,
-          invert: s.conv.invert,
-          blurSigma: s.conv.blurSigma,
-          smoothMode: s.conv.smoothMode,
-          edgePreserve: s.conv.edgePreserve,
-          normalize: s.conv.normalize,
-          gamma: s.conv.gamma,
-          finishSmooth: s.conv.finishSmooth,
-          transform: s.transform,
-          depthSource: aiDepth ? s.conv.depthSource : 'luminance',
-          aiDepth,
-          aiDetail: s.conv.aiDetail,
-        }).data
-      : null;
-  }
+  const s = state.sides.A;
+  const isPlaque = state.shape === 'plaque';
+  // The depth MAP is always computed fit (uncropped) at the image's aspect,
+  // so medallion / token / plaque share the identical map. Only the viewport
+  // previews crop it (coin's circular face, 3D mesh).
+  const imgAspect = s.image
+    ? (s.image.naturalWidth || s.image.width) / (s.image.naturalHeight || s.image.height)
+    : 0;
+  const fitAspect = s.image ? imgAspect : 0;
 
-  const edgeFrac = state.edge / state.radius; // rim band as a fraction of radius
+  let aiDepth = null;
+  if (s.image && s.conv.depthSource !== 'luminance') {
+    if (ensureAIDepth('A', fitAspect > 0)) aiDepth = s.ai; // else luminance now, re-render when ready
+  }
+  const res = s.image
+    ? imageToDepthMap(s.image, {
+        size: DEPTH_GRID_SIZE,
+        brightness: s.conv.brightness,
+        contrast: s.conv.contrast,
+        invert: s.conv.invert,
+        blurSigma: s.conv.blurSigma,
+        smoothMode: s.conv.smoothMode,
+        edgePreserve: s.conv.edgePreserve,
+        normalize: s.conv.normalize,
+        gamma: s.conv.gamma,
+        transform: s.transform,
+        depthSource: aiDepth ? s.conv.depthSource : 'luminance',
+        aiDepth,
+        aiDetail: s.conv.aiDetail,
+        fitAspect,
+      })
+    : null;
+  s.depth = res ? res.data : null;
+  const gW = res ? res.width : DEPTH_GRID_SIZE;
+  const gH = res ? res.height : DEPTH_GRID_SIZE;
+  state.gridW = gW;
+  state.gridH = gH;
+
   const tint = METAL_TINTS[state.metal] || METAL_TINTS.brass;
-  renderCoinFace2D(els.canvasA, state.sides.A.depth, DEPTH_GRID_SIZE, {
-    showDepthMap: state.showDepthMap,
-    relief: state.relief,
-    edgeFrac,
-    tint,
-  });
-  renderCoinFace2D(els.canvasB, state.sides.B.depth, DEPTH_GRID_SIZE, {
-    showDepthMap: state.showDepthMap,
-    relief: state.relief,
-    edgeFrac,
-    tint,
+  const shapeOpts = isPlaque
+    ? { shape: 'rect', aspect: state.plaque.x / state.plaque.y, gridW: gW, gridH: gH }
+    : { shape: 'coin' };
+  const edgeFrac = state.shape === 'coin' ? state.edge / state.radius : 0;
+
+  // 2D panel 1 — original image, always shown uncropped (matches the depth map).
+  DepthMap.renderSourceImage(els.canvasOrig, s.image, DEPTH_GRID_SIZE, { fit: true });
+  // 2D panel 2 — final depth map (grayscale, shaped by the object).
+  renderCoinFace2D(els.canvasDepth, s.depth, DEPTH_GRID_SIZE, {
+    showDepthMap: true, relief: state.relief, edgeFrac, tint, ...shapeOpts,
   });
 
   updateDownloadButtons();
 
   preview3d.rebuild({
+    shape: state.shape,
     radius: state.radius,
     depth: state.depth,
+    plaque: state.plaque,
     relief: state.relief,
-    depthA: state.sides.A.depth,
-    depthB: state.sides.B.depth,
+    depthA: s.depth,
+    depthB: null,
     gridSize: DEPTH_GRID_SIZE,
+    gridW: gW,
+    gridH: gH,
     edgeMm: state.edge,
   });
 }
@@ -217,17 +227,11 @@ async function setImage(side, file) {
 
 function applyImage(side, image) {
   state.sides[side].image = image;
-
-  const thumb = side === 'A' ? els.thumbA : els.thumbB;
-  const panel = side === 'A' ? els.panelA : els.panelB;
-  const clearBtn = side === 'A' ? els.clearA : els.clearB;
-
-  thumb.src = image.src || image.toDataURL?.() || '';
-  thumb.hidden = false;
-  panel.classList.add('has-image');
-  clearBtn.disabled = false;
-
-  updateCopyButtons();
+  els.thumbA.src = image.src || image.toDataURL?.() || '';
+  els.thumbA.hidden = false;
+  els.panelA.classList.add('has-image');
+  els.clearA.disabled = false;
+  if (state.shape === 'plaque') fitPlaqueToImage(); // keep cuboid aspect = image aspect
   scheduleRefresh(0);
 }
 
@@ -236,45 +240,32 @@ function clearSide(side) {
   state.sides[side].depth = null;
   state.sides[side].ai = null;
   setAIStatus(side, '');
-
-  const thumb = side === 'A' ? els.thumbA : els.thumbB;
-  const panel = side === 'A' ? els.panelA : els.panelB;
-  const clearBtn = side === 'A' ? els.clearA : els.clearB;
-
-  thumb.hidden = true;
-  thumb.removeAttribute('src');
-  panel.classList.remove('has-image');
-  clearBtn.disabled = true;
-
-  updateCopyButtons();
+  els.thumbA.hidden = true;
+  els.thumbA.removeAttribute('src');
+  els.panelA.classList.remove('has-image');
+  els.clearA.disabled = true;
   scheduleRefresh(0);
-}
-
-function updateCopyButtons() {
-  els.copyAtoB.disabled = !state.sides.A.image;
-  els.copyBtoA.disabled = !state.sides.B.image;
 }
 
 // ── Depth-map download (16-bit grayscale PNG / TIFF) ────────────────────
 function updateDownloadButtons() {
   els.dlPngA.disabled = els.dlTiffA.disabled = !state.sides.A.depth;
-  els.dlPngB.disabled = els.dlTiffB.disabled = !state.sides.B.depth;
 }
 
-function downloadDepthMap(side, format) {
-  const depth = state.sides[side].depth;
+function downloadDepthMap(format) {
+  const depth = state.sides.A.depth;
   if (!depth) return;
+  const w = state.gridW || DEPTH_GRID_SIZE;
+  const h = state.gridH || DEPTH_GRID_SIZE;
   const { encodePNG16, encodeTIFF16, downloadBlob } = window.DepthMapExport;
   const blob = format === 'png'
-    ? encodePNG16(depth, DEPTH_GRID_SIZE)
-    : encodeTIFF16(depth, DEPTH_GRID_SIZE);
-  downloadBlob(blob, `depthmap-side-${side}-16bit.${format === 'png' ? 'png' : 'tif'}`);
+    ? encodePNG16(depth, w, h)
+    : encodeTIFF16(depth, w, h);
+  downloadBlob(blob, `depthmap-16bit.${format === 'png' ? 'png' : 'tif'}`);
 }
 
-els.dlPngA.addEventListener('click', () => downloadDepthMap('A', 'png'));
-els.dlTiffA.addEventListener('click', () => downloadDepthMap('A', 'tiff'));
-els.dlPngB.addEventListener('click', () => downloadDepthMap('B', 'png'));
-els.dlTiffB.addEventListener('click', () => downloadDepthMap('B', 'tiff'));
+els.dlPngA.addEventListener('click', () => downloadDepthMap('png'));
+els.dlTiffA.addEventListener('click', () => downloadDepthMap('tiff'));
 
 function wireDropzone(zone, fileInput, side) {
   zone.addEventListener('click', () => fileInput.click());
@@ -304,17 +295,7 @@ function wireDropzone(zone, fileInput, side) {
 }
 
 wireDropzone(els.dropzoneA, els.fileA, 'A');
-wireDropzone(els.dropzoneB, els.fileB, 'B');
 els.clearA.addEventListener('click', () => clearSide('A'));
-els.clearB.addEventListener('click', () => clearSide('B'));
-
-// ── Apply to both sides ─────────────────────────────────────────────────
-els.copyAtoB.addEventListener('click', () => {
-  if (state.sides.A.image) applyImage('B', state.sides.A.image);
-});
-els.copyBtoA.addEventListener('click', () => {
-  if (state.sides.B.image) applyImage('A', state.sides.B.image);
-});
 
 // ── Dimension sliders & presets ─────────────────────────────────────────
 function setDimensions(r, d) {
@@ -334,10 +315,102 @@ els.depthSlider.addEventListener('input', () =>
   setDimensions(state.radius, parseFloat(els.depthSlider.value))
 );
 
+/** Show/hide the dimension rows appropriate for the active shape. */
+function syncShapeUI() {
+  const plaque = state.shape === 'plaque';
+  els.coinDims.hidden = plaque;
+  els.plaqueDims.hidden = !plaque;
+  els.edgeRow.style.display = plaque ? 'none' : '';
+  document.querySelectorAll('.preset-btn').forEach((b) =>
+    b.classList.toggle('active', b.dataset.shape === state.shape && b.dataset.active === '1')
+  );
+}
+
+function setPlaqueDim(key, val) {
+  state.plaque[key] = val;
+  const labels = { x: els.plaqueXVal, y: els.plaqueYVal, z: els.plaqueZVal, bevel: els.bevelVal };
+  labels[key].textContent = `${val} mm`;
+  scheduleRefresh();
+}
+/** Sync the plaque X/Y slider UI from state. */
+function syncPlaqueXYUI() {
+  els.plaqueX.value = state.plaque.x; els.plaqueXVal.textContent = `${state.plaque.x} mm`;
+  els.plaqueY.value = state.plaque.y; els.plaqueYVal.textContent = `${state.plaque.y} mm`;
+}
+
+/**
+ * Fit the plaque's X/Y footprint to the source image's aspect ratio, keeping
+ * the current area (so its visual size doesn't jump). Only meaningful when an
+ * image is loaded; otherwise the stored aspect is kept.
+ */
+function fitPlaqueToImage() {
+  const img = state.sides.A.image;
+  if (!img) return;
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  if (!iw || !ih) return;
+  const imageAspect = iw / ih;
+  const currentAspect = state.plaque.x / state.plaque.y;
+  if (Math.abs(imageAspect - currentAspect) < 0.005) return; // already matches
+  const area = state.plaque.x * state.plaque.y;
+  state.plaque.x = clampDim(Math.sqrt(area * imageAspect));
+  state.plaque.y = clampDim(Math.sqrt(area / imageAspect));
+  syncPlaqueXYUI();
+}
+
+const clampDim = (v) => Math.round(Math.min(200, Math.max(20, v)));
+
+/** Adjust one plaque axis and, if an image is loaded, keep the other axis in proportion. */
+function setPlaqueAxis(axis, val) {
+  state.plaque[axis] = val;
+  const img = state.sides.A.image;
+  if (img) {
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    const imageAspect = iw / ih;
+    if (axis === 'x') state.plaque.y = clampDim(val / imageAspect);
+    else state.plaque.x = clampDim(val * imageAspect);
+  }
+  syncPlaqueXYUI();
+  scheduleRefresh();
+}
+
+els.plaqueX.addEventListener('input', () => setPlaqueAxis('x', parseFloat(els.plaqueX.value)));
+els.plaqueY.addEventListener('input', () => setPlaqueAxis('y', parseFloat(els.plaqueY.value)));
+els.plaqueZ.addEventListener('input', () => setPlaqueDim('z', parseFloat(els.plaqueZ.value)));
+els.bevelSlider.addEventListener('input', () => setPlaqueDim('bevel', parseFloat(els.bevelSlider.value)));
+
+function setShape(shape) {
+  if (shape === 'plaque') fitPlaqueToImage(); // match footprint to the image
+  state.shape = shape;
+  syncShapeUI();
+  // Re-frame the camera for the new shape's footprint.
+  preview3d.resetFrame();
+  preview3d.viewSideA(viewRadius());
+  scheduleRefresh(0);
+}
+
 document.querySelectorAll('.preset-btn').forEach((btn) =>
-  btn.addEventListener('click', () =>
-    setDimensions(parseFloat(btn.dataset.r), parseFloat(btn.dataset.d))
-  )
+  btn.addEventListener('click', () => {
+    // Mark the active preset so the shape toggle highlight follows it.
+    document.querySelectorAll('.preset-btn').forEach((b) => (b.dataset.active = '0'));
+    btn.dataset.active = '1';
+    if (btn.dataset.shape === 'plaque') {
+      setPlaqueDim('z', parseFloat(btn.dataset.z));
+      // X/Y come from the image aspect if an image is loaded, else the preset.
+      if (state.sides.A.image) {
+        fitPlaqueToImage();
+      } else {
+        state.plaque.x = parseFloat(btn.dataset.x);
+        state.plaque.y = parseFloat(btn.dataset.y);
+        syncPlaqueXYUI();
+      }
+      setShape('plaque');
+    } else {
+      setDimensions(parseFloat(btn.dataset.r), parseFloat(btn.dataset.d));
+      setShape('coin');
+    }
+  })
 );
 
 // ── Global: relief height & depth-map view toggle ───────────────────────
@@ -358,7 +431,22 @@ els.metalSelect.addEventListener('change', () => {
 });
 els.showDepthCheck.addEventListener('change', () => {
   state.showDepthMap = els.showDepthCheck.checked;
-  scheduleRefresh(0);
+  preview3d.setShowDepthMap(state.showDepthMap);
+});
+
+// ── 3D lighting: lit/unlit + intensity ──────────────────────────────────
+function applyLighting() {
+  preview3d.setLighting(state.lit, state.lightIntensity);
+  els.lightIntensity.disabled = !state.lit;
+  els.lightIntensityVal.textContent = `${Math.round(state.lightIntensity * 100)}%`;
+}
+els.litCheck.addEventListener('change', () => {
+  state.lit = els.litCheck.checked;
+  applyLighting();
+});
+els.lightIntensity.addEventListener('input', () => {
+  state.lightIntensity = parseFloat(els.lightIntensity.value);
+  applyLighting();
 });
 
 // ── Per-side depth-map conversion ───────────────────────────────────────
@@ -374,7 +462,6 @@ function wireConversion(side) {
     edgeRow: els['edgeRow' + side],
     normalize: els['normalize' + side],
     gamma: els['gamma' + side],           gammaVal: els['gamma' + side + 'Val'],
-    finish: els['finish' + side],         finishVal: els['finish' + side + 'Val'],
     reset: els['resetDepth' + side],
     depthSource: els['depthSource' + side],
     aiDetail: els['aiDetail' + side],     aiDetailVal: els['aiDetail' + side + 'Val'],
@@ -438,11 +525,6 @@ function wireConversion(side) {
     e.gammaVal.textContent = parseFloat(e.gamma.value).toFixed(2);
     scheduleRefresh();
   });
-  e.finish.addEventListener('input', () => {
-    c().finishSmooth = parseFloat(e.finish.value);
-    e.finishVal.textContent = `${e.finish.value} px`;
-    scheduleRefresh();
-  });
   e.reset.addEventListener('click', () => {
     state.sides[side].conv = defaultConversion();
     e.brightness.value = 0; e.brightnessVal.textContent = '0';
@@ -453,7 +535,6 @@ function wireConversion(side) {
     e.edge.value = 40;      e.edgeVal.textContent = '40';
     e.normalize.checked = false;
     e.gamma.value = 1;      e.gammaVal.textContent = '1.00';
-    e.finish.value = 0;     e.finishVal.textContent = '0 px';
     e.depthSource.value = 'luminance';
     e.aiDetail.value = 25;  e.aiDetailVal.textContent = '25%';
     syncEdgeVisibility();
@@ -466,7 +547,6 @@ function wireConversion(side) {
 }
 
 wireConversion('A');
-wireConversion('B');
 
 // ── Per-side image transform (position & scale) ─────────────────────────
 function wireTransform(side) {
@@ -510,7 +590,6 @@ function wireTransform(side) {
 }
 
 wireTransform('A');
-wireTransform('B');
 
 // ── View controls ───────────────────────────────────────────────────────
 function setActiveViewButton(btn) {
@@ -518,58 +597,21 @@ function setActiveViewButton(btn) {
   if (btn) btn.classList.add('active');
 }
 
-/** Switch the 3D preview to show the given side (used when editing params). */
-function focusSide(side) {
-  if (side === 'A') preview3d.viewSideA(state.radius);
-  else preview3d.viewSideB(state.radius);
-  setActiveViewButton(side === 'A' ? els.viewABtn : els.viewBBtn);
-  els.viewHint.textContent = `Viewing side ${side}`;
+/** Fit radius for the active shape (used by the view presets). */
+function viewRadius() {
+  return state.shape === 'plaque' ? Math.max(state.plaque.x, state.plaque.y) / 2 : state.radius;
 }
 
-/**
- * When the user interacts with a side's parameter panel, ensure the 3D
- * preview is mostly facing that side — if not, tween the view to it.
- */
-function wireSideFocus(side, panelEl) {
-  const maybeFocus = () => {
-    if (!preview3d.isSideMostlyFacing(side)) focusSide(side);
-  };
-  panelEl.addEventListener('pointerdown', maybeFocus, true);
-  panelEl.addEventListener('focusin', maybeFocus);
-}
-
-wireSideFocus('A', els.panelA);
-wireSideFocus('B', els.panelB);
-
-/** Show exactly one side's parameters at a time ('A' | 'B'). Never both. */
-function showSidePanel(view) {
-  els.panelA.classList.toggle('hidden', view !== 'A');
-  els.panelB.classList.toggle('hidden', view !== 'B');
-}
-
-els.viewABtn.addEventListener('click', () => { focusSide('A'); showSidePanel('A'); });
-els.viewBBtn.addEventListener('click', () => { focusSide('B'); showSidePanel('B'); });
-els.flipBtn.addEventListener('click', () => {
-  preview3d.flip();
-  // After the flip animation completes, show the side now facing up.
-  setTimeout(() => {
-    const top = preview3d.topSide; // 'A' or 'B'
-    showSidePanel(top);
-    setActiveViewButton(top === 'A' ? els.viewABtn : els.viewBBtn);
-    els.viewHint.textContent = `Viewing side ${top}`;
-  }, 720);
-  els.viewHint.textContent = 'Flipping…';
-});
-els.orbitBtn.addEventListener('click', () => {
-  preview3d.viewOrbit(state.radius);
-  setActiveViewButton(els.orbitBtn);
-  // Keep a single side panel visible — the one currently facing up.
-  showSidePanel(preview3d.topSide);
+els.viewABtn.addEventListener('click', () => {
+  preview3d.viewSideA(viewRadius());
+  setActiveViewButton(els.viewABtn);
   els.viewHint.textContent = 'Drag to orbit · scroll to zoom';
 });
 
 // ── Boot ────────────────────────────────────────────────────────────────
+syncShapeUI();
 preview3d.setMetal(state.metal);
-preview3d.viewSideA(state.radius); // default to Side A
-showSidePanel('A');
+preview3d.setShowDepthMap(state.showDepthMap);
+applyLighting();
+preview3d.viewSideA(viewRadius());
 refreshAll();

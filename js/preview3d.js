@@ -49,6 +49,10 @@ App.CoinPreview3D = class CoinPreview3D {
     rim.position.set(0, -100, 40);
     this.scene.add(rim);
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+    this._lights = [key, fill, rim]; // scaled together by setLighting()
+    for (const l of this._lights) l.userData.baseIntensity = l.intensity;
+    this.lit = true;
+    this.lightIntensity = 1;
 
     // ── Materials ──
     this.faceMaterial = new THREE.MeshStandardMaterial({
@@ -112,8 +116,81 @@ App.CoinPreview3D = class CoinPreview3D {
     this.rimMaterial.color.setHex(m.rim);
     this.rimMaterial.metalness = Math.min(1, m.metalness + 0.05);
     this.rimMaterial.roughness = Math.min(1, m.roughness + 0.08);
-    this.faceMaterial.needsUpdate = true;
-    this.rimMaterial.needsUpdate = true;
+    this._syncMaterialMode();
+  }
+
+  /**
+   * Lit / unlit render mode + key-light intensity.
+   *
+   * Unlit swaps the PBR materials for MeshBasicMaterial (flat color + vertex
+   * depth shading, no light response) — useful to inspect the raw relief
+   * shape. Lit keeps the metallic PBR setup; `intensity` (0..3, default 1)
+   * scales the key/fill/rim lights while ambient stays put for legibility.
+   *
+   * @param {boolean} lit
+   * @param {number}  [intensity] 0..3 — only used when lit.
+   */
+  setLighting(lit, intensity = 1) {
+    if (this.lit === lit && this.lightIntensity === intensity) return;
+    this.lit = lit;
+    this.lightIntensity = intensity;
+    const k = lit ? Math.max(0, intensity) : 0;
+    for (const l of this._lights) l.intensity = l.userData.baseIntensity * k;
+    this._syncMaterialMode();
+  }
+
+  /** Swap materials between lit (PBR) and unlit (basic), lazily created. */
+  _syncMaterialMode() {
+    if (!this._unlitFace) {
+      // Vertex colors are baked on lit-ready geometry via a multiplicative
+      // shading ramp; the basic material keeps the metal tint + that shading
+      // so the relief stays readable without any lights.
+      this._unlitFace = new THREE.MeshBasicMaterial({
+        color: this.faceMaterial.color.getHex(),
+        vertexColors: true,
+        side: THREE.DoubleSide,
+      });
+      this._unlitRim = new THREE.MeshBasicMaterial({
+        color: this.rimMaterial.color.getHex(),
+        vertexColors: true,
+        side: THREE.DoubleSide,
+      });
+    }
+    this._unlitFace.color.copy(this.faceMaterial.color);
+    this._unlitRim.color.copy(this.rimMaterial.color);
+
+    const lit = this.lit !== false; // default lit
+    let face = lit ? this.faceMaterial : this._unlitFace;
+    let rim = lit ? this.rimMaterial : this._unlitRim;
+    if (this.showDepthMap) {
+      // Grayscale depth visualization (vertex color = depth, no metal tint).
+      if (!this._depthMat) {
+        this._depthMat = new THREE.MeshStandardMaterial({
+          color: 0xffffff, roughness: 0.95, metalness: 0.0,
+          vertexColors: true, side: THREE.DoubleSide,
+        });
+      }
+      face = rim = this._depthMat;
+    }
+    for (const mesh of [this.capA, this.capB, this.edgeA, this.edgeB]) {
+      if (mesh) mesh.material = face;
+    }
+    if (this.rimMesh) this.rimMesh.material = rim;
+    // The raised edge ring is an embossing feature, not part of the depth map
+    // — hide it in the depth-map visualization.
+    if (this.edgeA) this.edgeA.visible = !this.showDepthMap;
+    if (this.edgeB) this.edgeB.visible = !this.showDepthMap;
+    face.needsUpdate = true;
+    rim.needsUpdate = true;
+  }
+
+  /**
+   * Toggle the 3D preview between the embossed metal result and a grayscale
+   * depth-map visualization of the relief.
+   */
+  setShowDepthMap(on) {
+    this.showDepthMap = !!on;
+    this._syncMaterialMode();
   }
 
   /**
@@ -126,41 +203,152 @@ App.CoinPreview3D = class CoinPreview3D {
    * @param {Float32Array|null} p.depthB  Normalized depth grid for side B.
    * @param {number} p.gridSize        Resolution of the depth grids.
    */
-  rebuild({ radius, depth, relief, depthA, depthB, gridSize, edgeMm = 0 }) {
+  rebuild({ shape = 'coin', radius, depth, relief, depthA, depthB, gridSize, edgeMm = 0, plaque = null, gridW = 0, gridH = 0 }) {
     // Dispose old geometry
     for (const mesh of [this.capA, this.capB, this.rimMesh, this.edgeA, this.edgeB]) {
       if (mesh) { mesh.geometry.dispose(); this.coinGroup.remove(mesh); }
+    }
+    this.edgeA = this.edgeB = null;
+    const gW = gridW || gridSize, gH = gridH || gridSize;
+
+    if (shape === 'plaque' && plaque) {
+      this._rebuildPlaque(plaque, relief, depthA, depthB, gW, gH);
+      this._syncMaterialMode();
+      this._frame(Math.max(plaque.x, plaque.y) / 2);
+      return;
     }
 
     const half = depth / 2;
     const edge = Math.min(edgeMm || 0, radius); // clamp so edge can't exceed radius
 
-    this.capA = this._buildCap(radius, half, relief, depthA, gridSize, +1, edge);
-    this.capB = this._buildCap(radius, half, relief, depthB, gridSize, -1, edge);
+    this.capA = this._buildCap(radius, half, relief, depthA, gW, gH, +1, edge);
+    this.capB = this._buildCap(radius, half, relief, null, gW, gH, -1, edge); // flat back
     this.rimMesh = this._buildRim(radius, half, relief, depthA, depthB, gridSize, edge);
     // Raised edge rings (real geometry) give a crisp, smooth inner boundary.
     this.edgeA = this._buildRaisedEdge(radius, half, relief, +1, edge);
-    this.edgeB = this._buildRaisedEdge(radius, half, relief, -1, edge);
+    this.edgeB = null; // single-sided: no raised ring on the flat back
 
     this.coinGroup.add(this.capA, this.capB, this.rimMesh);
     if (this.edgeA) this.coinGroup.add(this.edgeA);
     if (this.edgeB) this.coinGroup.add(this.edgeB);
 
+    // Re-apply lit/unlit material selection to the new meshes.
+    this._syncMaterialMode();
+
     // Frame camera if it hasn't been placed yet relative to coin size
     this._frame(radius);
   }
 
-  /** Sample depth grid with bilinear interpolation. */
-  _sample(depth, gridSize, u, v) {
+  /**
+   * Build a rectangular cuboid (plaque): X width, Y height (extruded depth),
+   * Z thickness. The two large X×Z faces (front/back) are embossed with the
+   * depth maps; the other four walls are plain. A chamfered frame on each
+   * embossed face forms the bevel. Matches the coin's convention of side A
+   * on +Y and side B on −Y (thickness along Y).
+   */
+  _rebuildPlaque(plaque, relief, depthA, depthB, gridW, gridH) {
+    const X = plaque.x, Z = plaque.y, T = plaque.z; // footprint X×Z, thickness Y
+    const half = T / 2;
+    const bevel = Math.max(0, Math.min(plaque.bevel || 0, X / 2 - 0.01, Z / 2 - 0.01));
+
+    this.capA = this._buildPlaqueFace(X, Z, half, relief, depthA, gridW, gridH, +1, bevel);
+    this.capB = this._buildPlaqueFace(X, Z, half, relief, null, gridW, gridH, -1, bevel); // flat back
+    this.rimMesh = this._buildPlaqueSides(X, Z, half, relief, bevel);
+
+    this.coinGroup.add(this.capA, this.capB, this.rimMesh);
+  }
+
+  /**
+   * One embossed plaque face. The depth map fills the full X×Z face (no rim
+   * mask — the whole face is the canvas). Vertices in the outer `bevel` band
+   * taper from full relief down to the base height, forming the chamfer.
+   */
+  _buildPlaqueFace(X, Z, half, relief, depth, gridW, gridH, side /* +1 front, −1 back */, bevel) {
+    // Resolution scales with aspect so cells stay roughly square.
+    const segsX = Math.max(8, Math.round(CAP_SEGMENTS * Math.min(1, X / Math.max(X, Z))));
+    const segsZ = Math.max(8, Math.round(CAP_SEGMENTS * Math.min(1, Z / Math.max(X, Z))));
+    const geo = new THREE.PlaneGeometry(X, Z, segsX, segsZ);
+    geo.rotateX(side === 1 ? Math.PI / 2 : -Math.PI / 2);
+
+    const pos = geo.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const hx = X / 2, hz = Z / 2;
+
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const z = pos.getZ(i);
+
+      const u = side === 1 ? (x + hx) / X : (hx - x) / X;
+      const v = (z + hz) / Z;
+      const d = this._sample(depth, gridW, gridH, u, v);
+
+      // Bevel: distance inward from the nearest rectangle edge → taper 0..1.
+      let taper = 1;
+      if (bevel > 0) {
+        const inset = Math.min(hx - Math.abs(x), hz - Math.abs(z)); // 0 at edge
+        taper = Math.min(1, Math.max(0, inset / bevel));
+      }
+
+      const y = side * (half + d * relief * taper);
+      pos.setXYZ(i, x, y, z);
+
+      // Depth as grayscale vertex color (see _buildCap).
+      colors[i * 3] = d;
+      colors[i * 3 + 1] = d;
+      colors[i * 3 + 2] = d;
+    }
+
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+    return new THREE.Mesh(geo, this.faceMaterial);
+  }
+
+  /**
+   * The four plain side walls of the cuboid, built as an open-ended prism
+   * around the X×Z rectangle, spanning base-to-relief height like the coin's
+   * rim so the silhouette is solid.
+   */
+  _buildPlaqueSides(X, Z, half, relief, bevel) {
+    const hx = X / 2, hz = Z / 2;
+    const yTop = half + relief, yBot = -(half + relief);
+    const h = yTop - yBot;
+
+    // Perimeter outline (rectangle corners).
+    const corners = [
+      [-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz],
+    ];
+    const positions = [];
+    const push = (ax, ay, az, bx, by, bz, cx, cy, cz) => {
+      positions.push(ax, ay, az, bx, by, bz, cx, cy, cz);
+    };
+    for (let e = 0; e < 4; e++) {
+      const [x0, z0] = corners[e];
+      const [x1, z1] = corners[(e + 1) % 4];
+      // Two triangles per wall quad (bottom→top).
+      push(x0, yBot, z0, x1, yBot, z1, x1, yTop, z1);
+      push(x0, yBot, z0, x1, yTop, z1, x0, yTop, z0);
+    }
+    const geo = new THREE.BufferGeometry();
+    const posArr = new Float32Array(positions);
+    geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+    geo.computeVertexNormals();
+    const colors = new Float32Array((posArr.length / 3) * 3).fill(1);
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return new THREE.Mesh(geo, this.rimMaterial);
+  }
+
+  /** Sample depth grid with bilinear interpolation. Supports rectangular grids. */
+  _sample(depth, gridW, gridH, u, v) {
     if (!depth) return 0.5;
-    const x = Math.min(gridSize - 1.001, Math.max(0, u * (gridSize - 1)));
-    const y = Math.min(gridSize - 1.001, Math.max(0, v * (gridSize - 1)));
+    if (gridH == null) gridH = gridW; // square fallback
+    const x = Math.min(gridW - 1.001, Math.max(0, u * (gridW - 1)));
+    const y = Math.min(gridH - 1.001, Math.max(0, v * (gridH - 1)));
     const x0 = Math.floor(x), y0 = Math.floor(y);
     const fx = x - x0, fy = y - y0;
-    const x1 = Math.min(gridSize - 1, x0 + 1);
-    const y1 = Math.min(gridSize - 1, y0 + 1);
-    const a = depth[y0 * gridSize + x0], b = depth[y0 * gridSize + x1];
-    const c = depth[y1 * gridSize + x0], d = depth[y1 * gridSize + x1];
+    const x1 = Math.min(gridW - 1, x0 + 1);
+    const y1 = Math.min(gridH - 1, y0 + 1);
+    const a = depth[y0 * gridW + x0], b = depth[y0 * gridW + x1];
+    const c = depth[y1 * gridW + x0], d = depth[y1 * gridW + x1];
     return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
   }
 
@@ -228,12 +416,19 @@ App.CoinPreview3D = class CoinPreview3D {
    * PlaneGeometry lies in XY facing +Z; rotateX(+π/2) maps that normal to
    * +Y (top cap), rotateX(−π/2) maps it to −Y (bottom cap).
    */
-  _buildCap(radius, half, relief, depth, gridSize, side /* +1 top, −1 bottom */, edge = 0) {
+  _buildCap(radius, half, relief, depth, gridW, gridH, side /* +1 top, −1 bottom */, edge = 0) {
     const geo = new THREE.PlaneGeometry(radius * 2, radius * 2, CAP_SEGMENTS, CAP_SEGMENTS);
     geo.rotateX(side === 1 ? Math.PI / 2 : -Math.PI / 2);
 
     const pos = geo.attributes.position;
     const colors = new Float32Array(pos.count * 3);
+
+    // The depth grid may be non-square (fit to the image). The coin's square
+    // face samples the grid's central square (center-crop, display-only).
+    const cropW = Math.min(gridW, gridH);
+    const cropH = Math.min(gridW, gridH);
+    const cropX0 = (gridW - cropW) / 2;
+    const cropY0 = (gridH - cropH) / 2;
 
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
@@ -248,26 +443,26 @@ App.CoinPreview3D = class CoinPreview3D {
         px = x * s; pz = z * s;
       }
 
-      // Map world (x,z) → image (u,v). Camera up is −Z, so image top (v=0)
-      // sits at z = −r for side A. Side B is seen after a 180° flip about
-      // the Z axis (x → −x, y → −y), so its u axis is mirrored for the
-      // image to read upright.
-      const u = side === 1
+      // Map world (x,z) → image (u,v) within the center-cropped square.
+      const uNorm = side === 1
         ? (px + radius) / (2 * radius)
         : (radius - px) / (2 * radius);
-      const v = (pz + radius) / (2 * radius);
-      const dRaw = this._sample(depth, gridSize, u, v);
+      const vNorm = (pz + radius) / (2 * radius);
+      const u = (cropX0 + uNorm * cropW) / gridW;
+      const v = (cropY0 + vNorm * cropH) / gridH;
+      const dRaw = this._sample(depth, gridW, gridH, u, v);
       // Clamp relief so the image never overwrites the raised rim band.
       const d = this._applyEdge(dRaw, Math.sqrt(px * px + pz * pz), radius, edge);
 
       const y = side * (half + d * relief);
       pos.setXYZ(i, px, y, pz);
 
-      // Slight darkening with depth so relief reads without textures
-      const shade = 0.72 + 0.28 * d;
-      colors[i * 3] = shade;
-      colors[i * 3 + 1] = shade;
-      colors[i * 3 + 2] = shade;
+      // Vertex color carries the depth value directly: full-range grayscale
+      // drives the depth-map visualization, and also gives the embossed
+      // metal a subtle relief shading when multiplied over the tint.
+      colors[i * 3] = d;
+      colors[i * 3 + 1] = d;
+      colors[i * 3 + 2] = d;
     }
 
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -307,14 +502,19 @@ App.CoinPreview3D = class CoinPreview3D {
   // Camera
   // ────────────────────────────────────────────────────────────────────
 
-  _frame(radius) {
+  _frame(fitRadius) {
     if (!this._framed) {
-      const dist = radius * 3.4;
+      const dist = fitRadius * 3.4;
       this.camera.position.set(dist * 0.55, dist * 0.75, dist * 0.55);
       this.controls.target.set(0, 0, 0);
       this.controls.update();
       this._framed = true;
     }
+  }
+
+  /** Re-frame on the next rebuild (e.g. after switching shape). */
+  resetFrame() {
+    this._framed = false;
   }
 
   /** Smoothly move the camera to a preset position. */
